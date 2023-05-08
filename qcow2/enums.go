@@ -21,6 +21,25 @@ SOFTWARE.
 
 import "unsafe"
 
+//bdev type
+const (
+	TYPE_RAW = iota
+	TYPE_QCOW2
+)
+const (
+	TYPE_RAW_NAME   = "raw"
+	TYPE_QCOW2_NAME = "qcow2"
+)
+
+type FileType int
+
+var (
+	Supported_Types = map[string]FileType{
+		TYPE_QCOW2_NAME: TYPE_QCOW2,
+		TYPE_RAW_NAME:   TYPE_RAW,
+	}
+)
+
 const (
 	/* Size of L1 table entries */
 	L1E_SIZE = 8

@@ -39,8 +39,8 @@ func newCreateCmd() *cobra.Command {
 	var opts CreateOptions
 	var cmd = &cobra.Command{
 		Use:   "create",
-		Short: "create a new qcow2 file",
-		Long:  "qcow2_utils create <-f filename> <-s size>",
+		Short: "create a qcow2 file",
+		Long:  "qcow2_utils create <-f filename> <-s size> [-b backingfile] [--enable-subcluster]",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.FilePath == "" {
 				cmd.Help()

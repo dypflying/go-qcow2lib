@@ -22,6 +22,7 @@ SOFTWARE.
 import (
 	"container/list"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 	"unsafe"
@@ -229,17 +230,92 @@ func (child *BdrvChild) GetBS() *BlockDriverState {
 	return child.bs
 }
 
-func (bs *BlockDriverState) Info(pretty bool) string {
-	var bytes []byte
-	if bs.current != nil && bs.current.header != nil {
-		if pretty {
-			bytes, _ = json.MarshalIndent(bs.current.header, "", "\t")
-		} else {
-			bytes, _ = json.Marshal(bs.current.header)
-		}
-		return string(bytes)
+func (bs *BlockDriverState) Info(detail bool, pretty bool) string {
+
+	if bs.current == nil || bs.current.header == nil {
+		return ""
 	}
-	return ""
+	var info BlockInfo
+	info.BakcingFileChain = make([]string, 0)
+	//get basic information
+	info.FileFormat = "qcow2"
+	info.VirtualSize = bs.current.header.Size
+	if fileinfo, err := os.Stat(bs.filename); err == nil {
+		info.DiskSize = uint64(fileinfo.Size())
+	}
+	info.ClusterSize = 1 << bs.current.header.ClusterBits
+	info.RefcountBits = 1 << uint16(bs.current.header.RefcountOrder)
+	info.ExtendedL2 = bs.current.header.IncompatibleFeatures&QCOW2_INCOMPAT_EXTL2 > 0
+
+	//get backing chain
+	if bs.backing != nil {
+		getBackingChain(bs.backing, &info.BakcingFileChain)
+	}
+
+	//get statistic information
+	if detail {
+		var stat BlockStatistic
+		scanRefcountTable(bs, &stat)
+		info.Statistic = &stat
+	}
+
+	//response
+	var bytes []byte
+	if pretty {
+		bytes, _ = json.MarshalIndent(info, "", "\t")
+	} else {
+		bytes, _ = json.Marshal(info)
+	}
+	return string(bytes)
+}
+
+func scanRefcountTable(bs *BlockDriverState, stat *BlockStatistic) {
+	if bs == nil || bs.opaque == nil {
+		return
+	}
+	s := bs.opaque.(*BDRVQcow2State)
+	var err error
+	var p unsafe.Pointer
+	//firstly scan the refcount table and block
+	for i := 0; i < len(s.RefcountTable); i++ {
+		refcountBlockOffset := s.RefcountTable[i] & REFT_OFFSET_MASK
+		if refcountBlockOffset > 0 {
+			if p, err = load_refcount_block(bs, refcountBlockOffset); err != nil {
+				return
+			} else {
+				for j := uint64(0); j < DEFAULT_CLUSTER_SIZE/2; j++ {
+					if s.get_refcount(p, j) > 0 {
+						stat.TotalBlocks++
+					}
+				}
+			}
+			stat.RecountBlocks++
+		}
+	}
+	stat.RefcountTableBlocks = 1
+	stat.HeadBlocks = 1
+	stat.L1Blocks = 1
+
+	//then scan the l1 table and block
+	for i := 0; i < len(s.L1Table); i++ {
+		l2BlockOffset := s.L1Table[i] & L1E_OFFSET_MASK
+		if l2BlockOffset > 0 {
+			stat.L2Blocks++
+		}
+	}
+	stat.DataBlocks = stat.TotalBlocks - stat.L1Blocks - stat.RefcountTableBlocks - stat.HeadBlocks - stat.RecountBlocks - stat.L2Blocks
+}
+
+func getBackingChain(child *BdrvChild, list *[]string) {
+
+	if child == nil {
+		return
+	}
+	fmt.Printf("child.name = %s\n", child.name)
+	*list = append(*list, child.name)
+	if child.bs != nil {
+		getBackingChain(child.bs.backing, list)
+	}
 }
 
 type Bdrv_Open_Func func(filename string, options map[string]any, flags int) (*BlockDriverState, error)
@@ -289,4 +365,27 @@ type BlockDriver struct {
 	bdrv_getlength       Bdrv_Getlength_Func
 	bdrv_copy_range_from Bdrv_Copy_Range_From_Func //for convert copy
 	bdrv_copy_range_to   Bdrv_Copy_Range_To_Func   //for convert copy
+}
+
+type BlockInfo struct {
+	//based information
+	FileFormat   string `json:"file format"`
+	VirtualSize  uint64 `json:"virtual size"`
+	DiskSize     uint64 `json:"disk size"`
+	ClusterSize  uint32 `json:"cluster size"`
+	RefcountBits uint16 `json:"refcount bits"`
+	ExtendedL2   bool   `json:"extend l2"`
+	//backing chain
+	BakcingFileChain []string        `json:"backing chain"`
+	Statistic        *BlockStatistic `json:"stat,omitempty"`
+}
+
+type BlockStatistic struct {
+	TotalBlocks         uint64 `json:"total blocks,omitempty"`
+	HeadBlocks          uint64 `json:"head blocks,omitempty"`
+	L1Blocks            uint64 `json:"l1 blocks,omitempty"`
+	RefcountTableBlocks uint64 `json:"refcount table blocks,omitempty"`
+	L2Blocks            uint64 `json:"l2 blocks,omitempty"`
+	RecountBlocks       uint64 `json:"refcount blocks,omitempty"`
+	DataBlocks          uint64 `json:"data blocks,omitempty"`
 }

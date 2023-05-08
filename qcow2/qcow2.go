@@ -24,6 +24,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"unsafe"
 )
 
@@ -130,6 +131,12 @@ func qcow2_create(filename string, options map[string]any) error {
 	//set the backing file
 	if backingFile != "" {
 		header.BackingFileOffset = BACKING_FILE_OFFSET
+		if _, err = os.Stat(backingFile); err != nil {
+			return err
+		}
+		if backingFile, err = filepath.Abs(backingFile); err != nil {
+			return err
+		}
 		header.BackingFileSize = uint32(len(backingFile))
 	}
 
@@ -225,7 +232,7 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 		return nil, fmt.Errorf("qcow2 file %s read fail, err: %v", filename, err)
 	}
 	//check header
-	if err = check_Header(&header); err != nil {
+	if err = check_header(&header); err != nil {
 		return nil, err
 	}
 	child.header = &header
@@ -233,10 +240,12 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 	//read the backing file
 	var backingFile string
 	if header.BackingFileOffset > 0 && header.BackingFileSize > 0 {
+		backingBytes := make([]byte, header.BackingFileSize)
 		if _, err = Blk_Pread_Object(child, header.BackingFileOffset,
-			&backingFile, uint64(header.BackingFileSize)); err != nil {
+			backingBytes, uint64(header.BackingFileSize)); err != nil {
 			return nil, fmt.Errorf("can not read backing file, err: %v", err)
 		}
+		backingFile = string(backingBytes)
 		if backing, err = bdrv_open_child(backingFile, "qcow2", opts, flags); err != nil {
 			return nil, err
 		} else {
@@ -335,30 +344,30 @@ func initiate_qcow2_state(header *QCowHeader, enableSC bool) *BDRVQcow2State {
 	return s
 }
 
-func check_Header(header *QCowHeader) error {
+func check_header(header *QCowHeader) error {
 	//check header magic
 	if header.Magic != binary.BigEndian.Uint32(QCOW_MAGIC) {
-		return fmt.Errorf("no qcow2 format")
+		return fmt.Errorf("not qcow2 format")
 	}
 	//check header version
 	if header.Version != QCOW2_VERSION2 && header.Version != QCOW2_VERSION3 {
-		return fmt.Errorf("unsupport header version: %d", header.Version)
+		return fmt.Errorf("not support header version: %d", header.Version)
 	}
 	//check cluster bits
 	if header.ClusterBits != DEFAULT_CLUSTER_BITS {
-		return fmt.Errorf("no support for cluster size of %d, only 64k cluster size is supported", 1<<header.ClusterBits)
+		return fmt.Errorf("not support cluster size of %d, only cluster size of 64 kib is supported", 1<<header.ClusterBits)
 	}
 	//check refcountorder
 	if header.RefcountOrder != QCOW2_REFCOUNT_ORDER {
-		return fmt.Errorf("no support for refcount order of %d, only 4 is supported", header.RefcountOrder)
+		return fmt.Errorf("not support refcount order of %d, only refcount order of 4 is supported", header.RefcountOrder)
 	}
 	//check crypt method
 	if header.CryptMethod != QCOW2_CRYPT_METHOD {
-		return fmt.Errorf("no support for cryption")
+		return fmt.Errorf("not support cryption")
 	}
 	//check header length
 	if header.HeaderLength > uint32(unsafe.Sizeof(QCowHeader{})) {
-		return fmt.Errorf("no support for extended qcow2 header")
+		return fmt.Errorf("not support extended qcow2 header")
 	}
 	return nil
 }

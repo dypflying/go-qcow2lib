@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"os"
 	"unsafe"
 )
 
@@ -32,6 +33,29 @@ func Blk_Create(filename string, options map[string]any) error {
 		return err
 	}
 	return err
+}
+
+func Blk_Probe(filename string) (string, error) {
+	var err error
+	var file *os.File
+	var buffer bytes.Buffer
+	var magic uint32
+	buf := make([]byte, 4)
+	if file, err = os.Open(filename); err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if _, err = file.Read(buf); err != nil {
+		return "", err
+	}
+	buffer.Write(buf)
+	binary.Read(&buffer, binary.BigEndian, &magic)
+
+	if magic == binary.BigEndian.Uint32(QCOW_MAGIC) {
+		return TYPE_QCOW2_NAME, nil
+	} else {
+		return TYPE_RAW_NAME, nil
+	}
 }
 
 //this function return root BdrvChild
