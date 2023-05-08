@@ -39,7 +39,7 @@ The l2 cache and refcount cache of the qcow2 library is always automatically all
 
 Quick Start 
 ===========
-See [Examples](https://github.com/dypflying/go-qcow2lib/examples) 
+See [Examples](https://github.com/dypflying/go-qcow2lib/tree/main/examples) 
 
 Qcow2 Utility 
 ==============
@@ -47,7 +47,7 @@ Qcow2 Utility
 make 
 bin/qcow2util create <-f filename> <-s filesize> [-b backingfile] [--enable-subcluster]
 bin/qcow2util info <-f filename> [--pretty]
-bin/qcow2util dd <--if=inputfile> <-f inputformat> <--of=outputfile> <-O outputformat> 
+bin/qcow2util dd <-i inputfile> [-f inputformat] <-o outputfile> <-O outputformat> [--l2-cache-size=size]
 ```
 
 License 

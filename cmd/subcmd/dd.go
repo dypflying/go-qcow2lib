@@ -52,13 +52,22 @@ func newDdCmd() *cobra.Command {
 	var cmd = &cobra.Command{
 		Use:   "dd",
 		Short: "convert and copy from or to qcow2 files",
-		Long:  "qcow2_utils dd <-F inputformat> <-if inputfile> <-F inputformat> <-of outputfile> x",
+		Long:  "qcow2_utils dd [-f inputformat] <-i inputfile> <-O outputformat> <-o outputfile> [--l2-cache-size=size]",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var l2CacheSize uint64
 			var ok bool
-			if opts.InputFile == "" || opts.OutputFile == "" ||
-				opts.InputFormat == "" || opts.OutputFormat == "" {
+			if opts.InputFile == "" || opts.OutputFile == "" || opts.OutputFormat == "" {
 				cmd.Help()
+				os.Exit(1)
+			}
+			if opts.InputFormat != "" {
+				if _, ok := qcow2.Supported_Types[opts.InputFormat]; !ok {
+					fmt.Printf("iutput file format %s is not supported\n", opts.InputFormat)
+					os.Exit(1)
+				}
+			}
+			if _, ok := qcow2.Supported_Types[opts.OutputFormat]; !ok {
+				fmt.Printf("output file format %s is not supported\n", opts.OutputFormat)
 				os.Exit(1)
 			}
 			if opts.L2CacheSize != "" {
@@ -77,8 +86,8 @@ func newDdCmd() *cobra.Command {
 	}
 	flags := cmd.Flags()
 
-	flags.StringVarP(&opts.InputFile, "if", "", "", "specify the input file name")
-	flags.StringVarP(&opts.OutputFile, "of", "", "", "specify the output file name")
+	flags.StringVarP(&opts.InputFile, "inputfile", "i", "", "specify the input file name")
+	flags.StringVarP(&opts.OutputFile, "outputfile", "o", "", "specify the output file name")
 	flags.StringVarP(&opts.InputFormat, "inputformat", "f", "", "specify the input file format")
 	flags.StringVarP(&opts.OutputFormat, "outputformat", "O", "", "specify the output file format")
 	flags.StringVarP(&opts.L2CacheSize, "l2-cache-size", "", "", "specify the l2 cache size")
@@ -99,6 +108,11 @@ func execDD(inputFile string, inputFormat string, outputFile string, outputForma
 	var inRet, outRet uint64
 	buf := make([]uint8, BLOCK_SIZE)
 
+	if inputFormat == "" {
+		if inputFormat, err = qcow2.Blk_Probe(inputFile); err != nil {
+			return err
+		}
+	}
 	if inRoot, err = qcow2.Blk_Open(inputFile,
 		map[string]any{qcow2.OPT_FMT: inputFormat, qcow2.OPT_L2CACHESIZE: l2CacheSize},
 		os.O_RDONLY); err != nil {

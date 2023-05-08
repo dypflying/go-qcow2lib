@@ -30,6 +30,7 @@ import (
 type InfoOptions struct {
 	FilePath string
 	Pretty   bool
+	Detail   bool
 }
 
 func newInfoCmd() *cobra.Command {
@@ -45,7 +46,7 @@ func newInfoCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			err := InfoQcow2(opts.FilePath, opts.Pretty)
+			err := InfoQcow2(opts.FilePath, opts.Detail, opts.Pretty)
 			if err != nil {
 				fmt.Printf("open qcow2 file failed, err:%v\n", err)
 			}
@@ -56,10 +57,11 @@ func newInfoCmd() *cobra.Command {
 
 	flags.StringVarP(&opts.FilePath, "filename", "f", "", "specify the file name")
 	flags.BoolVarP(&opts.Pretty, "pretty", "p", false, "")
+	flags.BoolVarP(&opts.Detail, "detail", "d", false, "")
 	return cmd
 }
 
-func InfoQcow2(filename string, pretty bool) error {
+func InfoQcow2(filename string, detail bool, pretty bool) error {
 
 	var root *qcow2.BdrvChild
 	var err error
@@ -71,7 +73,7 @@ func InfoQcow2(filename string, pretty bool) error {
 		return fmt.Errorf("failed to open qcow2 file: %s, err: %v", filename, err)
 	}
 	bs := root.GetBS()
-	fmt.Println(bs.Info(pretty))
+	fmt.Println(bs.Info(detail, pretty))
 	qcow2.Blk_Close(root)
 
 	return nil
