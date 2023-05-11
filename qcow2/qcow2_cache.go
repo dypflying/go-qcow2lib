@@ -71,7 +71,7 @@ func can_clean_entry(c *Qcow2Cache, i int) bool {
 	return t.ref == 0 && !t.dirty && t.offset != 0 && t.lruCounter <= c.cacheCleanLruCounter
 }
 
-//actually we never clean cache since it will auto evict caches during "cache get"
+// actually we never clean cache since it will auto evict caches during "cache get"
 func qcow2_cache_clean_unused(c *Qcow2Cache) {
 
 	var i int

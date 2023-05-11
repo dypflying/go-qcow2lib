@@ -58,7 +58,7 @@ func Blk_Probe(filename string) (string, error) {
 	}
 }
 
-//this function return root BdrvChild
+// this function return root BdrvChild
 func Blk_Open(filename string, options map[string]any, flags int) (*BdrvChild, error) {
 
 	var child *BdrvChild
@@ -102,7 +102,7 @@ func Blk_Pread(root *BdrvChild, offset uint64, buf []uint8, bytes uint64) (uint6
 	return bytes, nil
 }
 
-//read object from the file, the object's size must be obtainable
+// read object from the file, the object's size must be obtainable
 func Blk_Pread_Object(child *BdrvChild, offset uint64, object any, size uint64) (uint64, error) {
 
 	var buffer bytes.Buffer
@@ -137,7 +137,21 @@ func Blk_Pwrite(root *BdrvChild, offset uint64, buf []uint8,
 	return bytes, nil
 }
 
-//Write the object to the file in the bigendian manner, return -1 if error occurs
+func Blk_Pwrite_Zeroes(root *BdrvChild, offset uint64,
+	bytes uint64, flags BdrvRequestFlags) (uint64, error) {
+	var qiov QEMUIOVector
+	var err error
+	if root == nil {
+		return 0, Err_NullObject
+	}
+	Qemu_Iovec_Init_Buf(&qiov, nil, bytes)
+	if err = bdrv_pwritev_part(root, offset, bytes, &qiov, 0, flags|BDRV_REQ_ZERO_WRITE); err != nil {
+		return 0, err
+	}
+	return bytes, nil
+}
+
+// Write the object to the file in the bigendian manner, return -1 if error occurs
 func Blk_Pwrite_Object(child *BdrvChild, offset uint64, object any, size uint64) (uint64, error) {
 
 	var buffer bytes.Buffer

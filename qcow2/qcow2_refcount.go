@@ -36,7 +36,7 @@ func set_refcount(refcountArray unsafe.Pointer, index uint64, value uint16) {
 	*p = cpu_to_be16(value)
 }
 
-//Initate the refcount table
+// Initate the refcount table
 func qcow2_refcount_init(bs *BlockDriverState) error {
 
 	s := bs.opaque.(*BDRVQcow2State)

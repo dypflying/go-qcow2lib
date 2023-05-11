@@ -27,51 +27,15 @@ import (
 	"unsafe"
 )
 
-//read object from the file, the object's size must be obtainable
-func Bdrv_Direct_Pread(child *BdrvChild, offset int64, object any, size int64) (int, error) {
-
-	var n int
-	var err error
-	var buffer bytes.Buffer
-
-	s := child.bs.opaque.(*BDRVRawState)
-	if child == nil || s.File == nil {
-		return -1, Err_NullObject
-	}
-
-	var buf = make([]byte, size)
-	if n, err = s.File.ReadAt(buf, offset); err != nil {
-		return -1, err
-	}
-	buffer.Write(buf)
-	binary.Read(&buffer, binary.BigEndian, object)
-	return n, nil
-}
-
-//Write the object to the file in the bigendian manner, return -1 if error occurs
-func Bdrv_Direct_Pwrite(child *BdrvChild, offset int64, object any, size int64) (int, error) {
-
-	var n int
-	var err error
-	var buffer bytes.Buffer
-	s := child.bs.opaque.(*BDRVRawState)
-	if child == nil || s.File == nil {
-		return -1, Err_NullObject
-	}
-	binary.Write(&buffer, binary.BigEndian, object)
-	buffer.Truncate(int(size))
-	if n, err = s.File.WriteAt(buffer.Bytes(), offset); err != nil {
-		return -1, err
-	}
-	return n, nil
-}
-
-//checked
 func bdrv_flush(bs *BlockDriverState) error {
 
 	if bs.Drv == nil {
 		return Err_NoDriverFound
 	}
+
+	atomic.AddUint64(&bs.InFlight, 1)
+	defer atomic.AddUint64(&bs.InFlight, ^uint64(0))
+
 	if bs.Drv.bdrv_flush != nil {
 		return bs.Drv.bdrv_flush(bs)
 	}
@@ -451,7 +415,7 @@ func bdrv_do_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, fl
 	alignment := Max_WRITE_ZEROS
 	maxTransfer := Max_WRITE_ZEROS
 
-	if flags&BdrvRequestFlags(^bs.SupportedZeroFlags) > 0&BDRV_REQ_NO_FALLBACK {
+	if flags&BdrvRequestFlags(^bs.SupportedZeroFlags)&BDRV_REQ_NO_FALLBACK > 0 {
 		return ERR_ENOTSUP
 	}
 
@@ -518,7 +482,7 @@ func bdrv_do_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, fl
 	return err
 }
 
-//do write the buffer to disk
+// do write the buffer to disk
 func bdrv_driver_pwritev(bs *BlockDriverState, offset uint64, bytes uint64,
 	qiov *QEMUIOVector, qiovOffset uint64, flags BdrvRequestFlags) error {
 
@@ -548,7 +512,7 @@ func bdrv_driver_pwritev(bs *BlockDriverState, offset uint64, bytes uint64,
 		goto out
 	}
 
-	panic("unexpected")
+	Assert(false)
 out:
 
 	if err == nil && flags&BDRV_REQ_FUA > 0 {
@@ -648,7 +612,7 @@ func bdrv_driver_preadv(bs *BlockDriverState, offset uint64, bytes uint64,
 		err = drv.bdrv_preadv(bs, offset, bytes, qiov, flags)
 		goto out
 	}
-	panic("unexpected")
+	Assert(false)
 out:
 	if qiov == &localQiov {
 		Qemu_Iovec_Destroy(&localQiov)
@@ -995,7 +959,7 @@ func bdrv_link_backing(parent *BlockDriverState, child *BdrvChild, childName str
 }
 
 func bdrv_opt_mem_align(bs *BlockDriverState) uint64 {
-	//TODO1: what alignment?
+	//TODO1: what alignment number is best choice?
 	return uint64(512)
 	//return uint64(1)
 }
@@ -1065,4 +1029,43 @@ func bdrv_close(bs *BlockDriverState) {
 		}
 		bs.Drv = nil
 	}
+}
+
+// read object from the file, the object's size must be obtainable, for debugging purpose
+func bdrv_direct_pread(child *BdrvChild, offset int64, object any, size int64) (int, error) {
+
+	var n int
+	var err error
+	var buffer bytes.Buffer
+
+	s := child.bs.opaque.(*BDRVRawState)
+	if child == nil || s.File == nil {
+		return -1, Err_NullObject
+	}
+
+	var buf = make([]byte, size)
+	if n, err = s.File.ReadAt(buf, offset); err != nil {
+		return -1, err
+	}
+	buffer.Write(buf)
+	binary.Read(&buffer, binary.BigEndian, object)
+	return n, nil
+}
+
+// Write the object to the file in the bigendian manner, return -1 if error occurs, for debugging purpose
+func bdrv_direct_pwrite(child *BdrvChild, offset int64, object any, size int64) (int, error) {
+
+	var n int
+	var err error
+	var buffer bytes.Buffer
+	s := child.bs.opaque.(*BDRVRawState)
+	if child == nil || s.File == nil {
+		return -1, Err_NullObject
+	}
+	binary.Write(&buffer, binary.BigEndian, object)
+	buffer.Truncate(int(size))
+	if n, err = s.File.WriteAt(buffer.Bytes(), offset); err != nil {
+		return -1, err
+	}
+	return n, nil
 }

@@ -24,7 +24,7 @@ import (
 	"unsafe"
 )
 
-//implementation of c: memset, performance to be optimized with copy func
+// implementation of c: memset, performance to be optimized with copy func
 func memset(p unsafe.Pointer, count int) {
 	if p == nil || count <= 0 {
 		return
@@ -36,7 +36,7 @@ func memset(p unsafe.Pointer, count int) {
 	}
 }
 
-//implementation of c: memcpy
+// implementation of c: memcpy
 func memcpy(dst, src unsafe.Pointer, count uint64) {
 	if dst == nil || src == nil || count <= 0 {
 		return

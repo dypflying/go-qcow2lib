@@ -247,7 +247,7 @@ func qcow2_get_host_offset(bs *BlockDriverState, offset uint64, bytes *uint32,
 		}
 
 	default:
-		panic("unexpected")
+		Assert(false)
 	}
 
 	if sc, err = count_contiguous_subclusters(bs, nbClusters, scIndex, l2Slice, &l2Index); err != nil {
@@ -258,6 +258,8 @@ func qcow2_get_host_offset(bs *BlockDriverState, offset uint64, bytes *uint32,
 	bytesAvailable = (sc + scIndex) << s.SubclusterBits
 
 out:
+	//fmt.Printf("bytesAvailable=%d, bytesNeeded=%d, offsetInCluster=%d, tmpType=%d,sc=%d, scIndex=%d,l2Entry=%d,nbClusters=%d\n",
+	//	bytesAvailable, bytesNeeded, offsetInCluster, tmpType, sc, scIndex, l2Entry, nbClusters)
 	if bytesAvailable > bytesNeeded {
 		bytesAvailable = bytesNeeded
 	}
@@ -409,7 +411,7 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 		case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN:
 			cow_start_from = scIndex << s.SubclusterBits
 		default:
-			panic("unexpected")
+			Assert(false)
 		}
 	} else {
 		switch scType {
@@ -418,7 +420,7 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 		case QCOW2_SUBCLUSTER_ZERO_ALLOC, QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC:
 			cow_start_from = scIndex << s.SubclusterBits
 		default:
-			panic("unexpected")
+			Assert(false)
 		}
 	}
 
@@ -446,7 +448,7 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 		case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN:
 			cow_end_to = round_up(cow_end_from, s.SubclusterSize)
 		default:
-			panic("unexpected")
+			Assert(false)
 		}
 	} else {
 		switch scType {
@@ -455,7 +457,7 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 		case QCOW2_SUBCLUSTER_ZERO_ALLOC, QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC:
 			cow_end_to = round_up(cow_end_from, s.SubclusterSize)
 		default:
-			panic("unexpected")
+			Assert(false)
 		}
 	}
 
@@ -494,7 +496,7 @@ func cluster_needs_new_alloc(bs *BlockDriverState, l2Entry uint64) bool {
 	case QCOW2_CLUSTER_UNALLOCATED, QCOW2_CLUSTER_COMPRESSED, QCOW2_CLUSTER_ZERO_PLAIN:
 		return true
 	default:
-		panic("Unexpected")
+		Assert(false)
 	}
 	return true
 }
@@ -756,7 +758,7 @@ func qcow2_get_subcluster_range_type(bs *BlockDriverState, l2Entry uint64, l2Bit
 		return uint64(cto32(val)) - scFrom, nil
 
 	case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_ZERO_ALLOC:
-		val = uint32(l2Bitmap) | uint32(qcow_oflag_sub_zero_range(0, uint32(scFrom>>32)))
+		val = uint32((l2Bitmap | qcow_oflag_sub_zero_range(0, uint32(scFrom))) >> 32)
 		return uint64(cto32(val)) - scFrom, nil
 
 	case QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC:
@@ -764,8 +766,9 @@ func qcow2_get_subcluster_range_type(bs *BlockDriverState, l2Entry uint64, l2Bit
 		return uint64(ctz32(val)) - scFrom, nil
 
 	default:
-		panic("unexpected")
+		Assert(false)
 	}
+	return 0, nil
 }
 
 func qcow2_get_subcluster_type(bs *BlockDriverState, l2Entry uint64,
@@ -798,7 +801,7 @@ func qcow2_get_subcluster_type(bs *BlockDriverState, l2Entry uint64,
 				return QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN
 			}
 		default:
-			panic("should not happen")
+			Assert(false)
 		}
 	} else {
 		switch cType {
@@ -813,9 +816,10 @@ func qcow2_get_subcluster_type(bs *BlockDriverState, l2Entry uint64,
 		case QCOW2_CLUSTER_UNALLOCATED:
 			return QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN
 		default:
-			panic("should not happen")
+			Assert(false)
 		}
 	}
+	return 0
 }
 
 func qcow2_get_cluster_type(bs *BlockDriverState, l2Entry uint64) QCow2ClusterType {
@@ -845,14 +849,14 @@ func qcow2_free_any_cluster(bs *BlockDriverState, l2Entry uint64) {
 		//do nothing
 	case QCOW2_CLUSTER_NORMAL, QCOW2_CLUSTER_ZERO_ALLOC:
 		if offset_into_cluster(s, l2Entry&L2E_OFFSET_MASK) > 0 {
-			panic("Cannot free unaligned cluster")
+			Assert(false)
 		} else {
 			qcow2_free_clusters(bs, l2Entry&L2E_OFFSET_MASK, uint64(s.ClusterSize))
 		}
 	case QCOW2_CLUSTER_ZERO_PLAIN, QCOW2_CLUSTER_UNALLOCATED:
 		//do nothing
 	default:
-		panic("unexpected")
+		Assert(false)
 	}
 }
 
@@ -1154,7 +1158,7 @@ func zero_l2_subclusters(bs *BlockDriverState, offset uint64, nbSubclusters uint
 	case QCOW2_CLUSTER_NORMAL, QCOW2_CLUSTER_UNALLOCATED:
 		break
 	default:
-		panic("unexpected")
+		Assert(false)
 	}
 
 	l2Bitmap = get_l2_bitmap(s, l2Slice, l2Index)

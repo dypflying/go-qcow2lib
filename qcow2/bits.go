@@ -81,11 +81,11 @@ func cto32(x uint32) int {
 	return ctz32(^x)
 }
 
-func qcow_oflag_sub_alloc_range(x, y uint32) int {
+func qcow_oflag_sub_alloc_range(x, y uint32) uint64 {
 	return (1<<y - 1<<x)
 }
 
-func qcow_oflag_sub_zero_range(x, y uint32) int {
+func qcow_oflag_sub_zero_range(x, y uint32) uint64 {
 	return qcow_oflag_sub_alloc_range(x, y) << 32
 }
 

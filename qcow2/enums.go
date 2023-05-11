@@ -21,7 +21,7 @@ SOFTWARE.
 
 import "unsafe"
 
-//bdev type
+// bdev type
 const (
 	TYPE_RAW = iota
 	TYPE_QCOW2
@@ -55,7 +55,7 @@ const (
 
 type QCow2ClusterType int
 
-//subcluster type
+// subcluster type
 const (
 	QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN = iota
 	QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC
@@ -68,7 +68,7 @@ const (
 
 type QCow2SubclusterType int
 
-//Bdrv request flag
+// Bdrv request flag
 const (
 	BDRV_REQ_COPY_ON_READ     = 0x1
 	BDRV_REQ_ZERO_WRITE       = 0x2

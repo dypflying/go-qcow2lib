@@ -23,44 +23,44 @@ import (
 	"unsafe"
 )
 
-//return the start point of a cluster, in which the offset falls
+// return the start point of a cluster, in which the offset falls
 func start_of_cluster(s *BDRVQcow2State, offset uint64) uint64 {
 	return offset &^ uint64(s.ClusterSize-1)
 }
 
-//return the offset after mask with the cluster size
+// return the offset after mask with the cluster size
 func offset_into_cluster(s *BDRVQcow2State, offset uint64) uint64 {
 	return offset & (uint64(s.ClusterSize) - 1)
 }
 
-//return the number of clusters
+// return the number of clusters
 func size_to_clusters(s *BDRVQcow2State, size uint64) uint64 {
 	return (size + uint64(s.ClusterSize-1)) >> uint(s.ClusterBits)
 }
 
-//return the number of l1s
+// return the number of l1s
 func size_to_l1(s *BDRVQcow2State, size uint64) uint64 {
 	shift := s.ClusterBits + s.L2Bits
 	return (size + (1 << uint(shift)) - 1) >> uint(shift)
 }
 
-//return the l1 index, which holds the offset
+// return the l1 index, which holds the offset
 func offset_to_l1_index(s *BDRVQcow2State, offset uint64) uint64 {
 	return uint64(offset >> (s.L2Bits + s.ClusterBits))
 }
 
-//return the l2 index, which holds the offset
+// return the l2 index, which holds the offset
 func offset_to_l2_index(s *BDRVQcow2State, offset uint64) uint64 {
 	return (offset >> uint(s.ClusterBits) & uint64(s.L2Size-1))
 }
 
-//return the l2 slice index, which holds the offset
-//note: for SC enabled l2 table, which doubles from the normal L2
+// return the l2 slice index, which holds the offset
+// note: for SC enabled l2 table, which doubles from the normal L2
 func offset_to_l2_slice_index(s *BDRVQcow2State, offset uint64) uint64 {
 	return uint64(offset>>s.ClusterBits) & uint64(s.L2SliceSize-1)
 }
 
-//offset to a SC index
+// offset to a SC index
 func offset_to_sc_index(s *BDRVQcow2State, offset uint64) uint64 {
 	return uint64(offset>>s.SubclusterBits) & (s.SubclustersPerCluster - 1)
 }

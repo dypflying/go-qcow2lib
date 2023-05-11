@@ -22,7 +22,6 @@ SOFTWARE.
 import (
 	"container/list"
 	"encoding/json"
-	"fmt"
 	"os"
 	"sync"
 	"unsafe"
@@ -71,7 +70,7 @@ type BDRVRawState struct {
 	SharedPerm uint64
 }
 
-//for qcow2 file state
+// for qcow2 file state
 type BDRVQcow2State struct {
 	ClusterBits       uint32
 	ClusterSize       uint32
@@ -311,7 +310,6 @@ func getBackingChain(child *BdrvChild, list *[]string) {
 	if child == nil {
 		return
 	}
-	fmt.Printf("child.name = %s\n", child.name)
 	*list = append(*list, child.name)
 	if child.bs != nil {
 		getBackingChain(child.bs.backing, list)
