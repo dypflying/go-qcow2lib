@@ -200,7 +200,7 @@ func qcow2_create(filename string, options map[string]any) error {
 	return err
 }
 
-//func Open(bs *BlockDriverState, options *QDict, flag int) error {
+// func Open(bs *BlockDriverState, options *QDict, flag int) error {
 func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverState, error) {
 
 	var err error
@@ -537,7 +537,7 @@ func qcow2_preadv_task(bs *BlockDriverState, scType QCow2SubclusterType,
 	switch scType {
 	case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_ZERO_ALLOC:
 		/* Both zero types are handled in qcow2_co_preadv_part */
-		panic("unexpected")
+		Assert(false)
 
 	case QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC:
 		return bdrv_preadv_part(bs.backing, offset, bytes, qiov, qiovOffset, 0)
@@ -550,9 +550,9 @@ func qcow2_preadv_task(bs *BlockDriverState, scType QCow2SubclusterType,
 			bytes, qiov, qiovOffset, 0)
 
 	default:
-		panic("unexpected")
+		Assert(false)
 	}
-	panic("unexpected")
+	return nil
 }
 
 func qcow2_pwritev_task(bs *BlockDriverState, hostOffset uint64, offset uint64,

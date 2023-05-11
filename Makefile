@@ -10,14 +10,14 @@ build:
 	go build -o $(OUTPUT_DIR)/qcow2util cmd/main.go
 
 fmt:
-	gofmt -w ./lib ./cmd 
+	gofmt -w ./qcow2 ./cmd 
 
 vet:
-	go vet ./lib/... ./cmd/...
+	go vet ./qcow2/... ./cmd/...
 
 # Run tests
-uinttest: fmt vet
-	go test ./lib/... ./cmd/... -covermode=atomic -coverprofile=coverage.txt
+unit: vet
+	go test ./qcow2/... -covermode=atomic -coverprofile=coverage.txt
 
 .PHONY: clean
 clean:

@@ -184,9 +184,7 @@ func raw_flush_to_disk(bs *BlockDriverState) error {
 
 func raw_block_status(bs *BlockDriverState, wantZero bool, offset uint64,
 	bytes uint64, pnum *uint64, tmap *uint64, file **BlockDriverState) (uint64, error) {
-
 	fmt.Println("[raw_block_status] no implementation")
-
 	return 0, nil
 }
 

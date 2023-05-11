@@ -89,7 +89,8 @@ func close(root *qcow2.BdrvChild) {
 	qcow2.Blk_Close(root)
 }
 
-func main2() {
+/*
+func main() {
 	//create a base file a write something
 	base_create()
 	root := base_open()
@@ -102,3 +103,4 @@ func main2() {
 	overlay_read(root)
 	close(root)
 }
+*/

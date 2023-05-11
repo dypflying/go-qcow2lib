@@ -31,11 +31,11 @@ const (
 	QCOW_MAX_REFTABLE_SIZE             = (8 * 1024 * 1024)
 )
 
-//L1 & L2 & Refcount masks
+// L1 & L2 & Refcount masks
 const (
-	L1E_OFFSET_MASK  = uint64(0x00fffffffffffe00) // 0x00fffffffffffe00ULL
-	L2E_OFFSET_MASK  = uint64(0x00fffffffffffe00) // 0x00fffffffffffe00ULL
-	REFT_OFFSET_MASK = uint64(0xfffffffffffffe00) //bigendian order
+	L1E_OFFSET_MASK  = uint64(0x00fffffffffffe00)
+	L2E_OFFSET_MASK  = uint64(0x00fffffffffffe00)
+	REFT_OFFSET_MASK = uint64(0xfffffffffffffe00)
 	INV_OFFSET       = uint64(0xff00000000000000)
 )
 
@@ -57,24 +57,24 @@ const (
 	DEFAULT_L2_CACHE     = 1024 * 1024 //default 1MiB for l2 cache
 )
 
-//backing file offset
+// backing file offset
 const (
 	BACKING_FILE_OFFSET = 32768
 )
 
-//L1 table offset
+// L1 table offset
 const (
 	L1_TABLE_OFFSET = 65536 * 3
 	L1_TABLE_SIZE   = 65536 >> 3
 )
 
-//refcount table offset
+// refcount table offset
 const (
 	REFCOUNT_TABLE_OFFSET = 65536
 	REFCOUNT_TABLE_SIZE   = 65536 >> 3
 )
 
-//L1 & L2 bit options
+// L1 & L2 bit options
 const (
 	QCOW_OFLAG_COPIED     = 1 << 63
 	QCOW_OFLAG_COMPRESSED = 1 << 62
@@ -95,7 +95,7 @@ const (
 	QCOW2_INCOMPAT_MASK              = QCOW2_INCOMPAT_DIRTY | QCOW2_INCOMPAT_CORRUPT | QCOW2_INCOMPAT_DATA_FILE | QCOW2_INCOMPAT_COMPRESSION | QCOW2_INCOMPAT_EXTL2
 )
 
-//cluster type
+// cluster type
 const (
 	QCOW2_CLUSTER_UNALLOCATED = iota
 	QCOW2_CLUSTER_ZERO_PLAIN
@@ -183,7 +183,7 @@ const (
 	BDRV_BLOCK_RECURSE      = 0x40
 )
 
-//options
+// options
 const (
 	OPT_FMT         = "fmt"
 	OPT_SIZE        = "size"

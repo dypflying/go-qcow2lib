@@ -28,7 +28,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//only raw and qcow2 format is supported
+// only raw and qcow2 format is supported
 const (
 	RAW_FORMAT   = "raw"
 	QCOW2_FORMAT = "qcow2"
@@ -99,7 +99,7 @@ func runDD(opts DdOptions, l2CacheSize uint64) (err error) {
 	return execDD(opts.InputFile, opts.InputFormat, opts.OutputFile, opts.OutputFormat, l2CacheSize)
 }
 
-//begin to copy data from raw file to qcow2 file
+// begin to copy data from raw file to qcow2 file
 func execDD(inputFile string, inputFormat string, outputFile string, outputFormat string, l2CacheSize uint64) (err error) {
 
 	var inRoot, outRoot *qcow2.BdrvChild
@@ -128,7 +128,7 @@ func execDD(inputFile string, inputFormat string, outputFile string, outputForma
 			opts[qcow2.OPT_SIZE] = size
 			opts[qcow2.OPT_FMT] = outputFormat
 			opts[qcow2.OPT_FILENAME] = outputFile
-			//opts[lib.OPT_SUBCLUSTER] = true
+			opts[qcow2.OPT_SUBCLUSTER] = true
 			qcow2.Blk_Create(outputFile, opts)
 		}
 	} else {
