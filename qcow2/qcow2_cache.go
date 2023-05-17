@@ -297,3 +297,15 @@ func qcow2_cache_is_table_offset(c *Qcow2Cache, offset uint64) unsafe.Pointer {
 	}
 	return nil
 }
+
+func qcow2_cache_discard(c *Qcow2Cache, table unsafe.Pointer) {
+	i := qcow2_cache_get_table_idx(c, table)
+
+	Assert(c.entries[i].ref == 0)
+
+	c.entries[i].offset = 0
+	c.entries[i].lruCounter = 0
+	c.entries[i].dirty = false
+
+	qcow2_cache_table_release(c, i, 1)
+}

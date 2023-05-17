@@ -52,9 +52,9 @@ const (
 	QCOW2_REFCOUNT_ORDER            = 4
 	QCOW2_CRYPT_METHOD              = 0
 	//	DEFAULT_ALIGNMENT               = 4096    //align to 4k
-	DEFAULT_ALIGNMENT    = 1           //align to 4k
-	DEFAULT_MAX_TRANSFER = 1 << 31     //2G
-	DEFAULT_L2_CACHE     = 1024 * 1024 //default 1MiB for l2 cache
+	DEFAULT_ALIGNMENT    = DEFAULT_SECTOR_SIZE //align to sector
+	DEFAULT_MAX_TRANSFER = 1 << 31             //2G
+	DEFAULT_L2_CACHE     = 1024 * 1024         //default 1MiB for l2 cache
 )
 
 // backing file offset
@@ -105,8 +105,13 @@ const (
 )
 
 const ( //permission options
+	//used features
+	BDRV_O_RDWR   = 0x0002
+	BDRV_O_UNMAP  = 0x4000  /* execute guest UNMAP/TRIM operations */
+	BDRV_O_CREATE = 0x80000 /* create of non-exist */
+
+	//unused feratures
 	BDRV_O_NO_SHARE     = 0x0001 /* don't share permissions */
-	BDRV_O_RDWR         = 0x0002
 	BDRV_O_RESIZE       = 0x0004 /* request permission for resizing the node */
 	BDRV_O_SNAPSHOT     = 0x0008 /* open the file read only and save writes in a snapshot */
 	BDRV_O_TEMPORARY    = 0x0010 /* delete the file after use */
@@ -118,13 +123,10 @@ const ( //permission options
 	BDRV_O_INACTIVE     = 0x0800 /* consistency hint for migration handoff */
 	BDRV_O_CHECK        = 0x1000 /* open solely for consistency check */
 	BDRV_O_ALLOW_RDWR   = 0x2000 /* allow reopen to change from r/o to r/w */
-	BDRV_O_UNMAP        = 0x4000 /* execute guest UNMAP/TRIM operations */
-	BDRV_O_PROTOCOL     = 0x8000 /* if no block driver is explicitly given:
-	   select an appropriate protocol driver,
-	   ignoring the format layer */
-	BDRV_O_NO_IO       = 0x10000 /* don't initialize for I/O */
-	BDRV_O_AUTO_RDONLY = 0x20000 /* degrade to read-only if opening read-write fails */
-	BDRV_O_IO_URING    = 0x40000 /* use io_uring instead of the thread pool */
+	BDRV_O_PROTOCOL     = 0x8000
+	BDRV_O_NO_IO        = 0x10000 /* don't initialize for I/O */
+	BDRV_O_AUTO_RDONLY  = 0x20000 /* degrade to read-only if opening read-write fails */
+	BDRV_O_IO_URING     = 0x40000 /* use io_uring instead of the thread pool */
 
 	BDRV_O_CACHE_MASK = (BDRV_O_NOCACHE | BDRV_O_NO_FLUSH)
 )

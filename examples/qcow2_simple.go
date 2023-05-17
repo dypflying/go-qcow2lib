@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/dypflying/go-qcow2lib/qcow2"
 )
@@ -30,7 +29,7 @@ func simple_open() *qcow2.BdrvChild {
 	var root *qcow2.BdrvChild
 	var err error
 	if root, err = qcow2.Blk_Open(SIMPLE_FILE,
-		map[string]any{qcow2.OPT_FMT: "qcow2"}, os.O_RDWR|os.O_CREATE); err != nil {
+		map[string]any{qcow2.OPT_FMT: "qcow2"}, qcow2.BDRV_O_RDWR); err != nil {
 		fmt.Printf("open failed, err: %v\n", err)
 		return nil
 	}

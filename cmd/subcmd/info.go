@@ -69,11 +69,10 @@ func InfoQcow2(filename string, detail bool, pretty bool) error {
 	opts[qcow2.OPT_FMT] = "qcow2"
 	opts[qcow2.OPT_FILENAME] = filename
 
-	if root, err = qcow2.Blk_Open(filename, opts, os.O_RDONLY); err != nil {
+	if root, err = qcow2.Blk_Open(filename, opts, qcow2.BDRV_O_RDWR); err != nil {
 		return fmt.Errorf("failed to open qcow2 file: %s, err: %v", filename, err)
 	}
-	bs := root.GetBS()
-	fmt.Println(bs.Info(detail, pretty))
+	fmt.Println(qcow2.Blk_Info(root, detail, pretty))
 	qcow2.Blk_Close(root)
 
 	return nil

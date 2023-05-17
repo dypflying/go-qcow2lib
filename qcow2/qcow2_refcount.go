@@ -20,6 +20,7 @@ SOFTWARE.
 */
 
 import (
+	"container/list"
 	"fmt"
 	"math"
 	"unsafe"
@@ -156,7 +157,7 @@ func alloc_refcount_block(bs *BlockDriverState, clusterIndex uint64) (unsafe.Poi
 		blockIndex := (newBlockOffset >> uint64(s.ClusterBits)) & uint64(s.RefcountBlockSize-1)
 		s.set_refcount(refcountBlock, uint64(blockIndex), 1)
 	} else {
-		if err = update_refcount(bs, newBlockOffset, uint64(s.ClusterSize), 1, false); err != nil {
+		if err = update_refcount(bs, newBlockOffset, uint64(s.ClusterSize), 1, false, QCOW2_DISCARD_NEVER); err != nil {
 			goto fail
 		}
 		if err = qcow2_cache_flush(bs, s.RefcountBlockCache); err != nil {
@@ -340,7 +341,7 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 		newTable[i] = be64_to_cpu(newTable[i])
 	}
 
-	//TODO1
+	//TODO2
 	//update the header for the new refcount table
 
 	/* And switch it in memory */
@@ -353,7 +354,7 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 	update_max_refcount_table_index(s)
 
 	/* Free old table. */
-	qcow2_free_clusters(bs, oldTableOffset, oldTableSize*REFTABLE_ENTRY_SIZE)
+	qcow2_free_clusters(bs, oldTableOffset, oldTableSize*REFTABLE_ENTRY_SIZE, QCOW2_DISCARD_OTHER)
 
 	return endOffset, nil
 
@@ -361,7 +362,8 @@ fail:
 	return 0, err
 }
 
-func update_refcount(bs *BlockDriverState, offset uint64, length uint64, addend uint64, decrease bool) error {
+func update_refcount(bs *BlockDriverState, offset uint64, length uint64, addend uint64,
+	decrease bool, dType Qcow2DiscardType) error {
 
 	s := bs.opaque.(*BDRVQcow2State)
 	var start, last, clusterOffset uint64
@@ -430,8 +432,11 @@ func update_refcount(bs *BlockDriverState, offset uint64, length uint64, addend 
 			}
 			table = qcow2_cache_is_table_offset(s.L2TableCache, uint64(offset))
 			if table != nil {
-				//do noting
-				//qcow2_cache_discard(s->l2_table_cache, table);
+				qcow2_cache_discard(s.L2TableCache, table)
+			}
+
+			if s.DiscardPassthrough[dType] {
+				update_refcount_discard(bs, clusterOffset, uint64(s.ClusterSize))
 			}
 		}
 	}
@@ -443,16 +448,17 @@ fail:
 		qcow2_cache_put(s.RefcountBlockCache, refcountBlock)
 	}
 	if err != nil {
-		update_refcount(bs, offset, clusterOffset-offset, addend, !decrease)
+		update_refcount(bs, offset, clusterOffset-offset, addend, !decrease, QCOW2_DISCARD_NEVER)
 	}
 	return err
 }
 
-func qcow2_update_cluster_refcount(bs *BlockDriverState, clusterIndex uint64, addend uint64, decrease bool) error {
+func qcow2_update_cluster_refcount(bs *BlockDriverState, clusterIndex uint64, addend uint64,
+	decrease bool, dType Qcow2DiscardType) error {
 
 	s := bs.opaque.(*BDRVQcow2State)
 	var err error
-	if err = update_refcount(bs, clusterIndex<<s.ClusterBits, 1, addend, decrease); err != nil {
+	if err = update_refcount(bs, clusterIndex<<s.ClusterBits, 1, addend, decrease, dType); err != nil {
 		return err
 	}
 	return nil
@@ -493,7 +499,7 @@ func qcow2_alloc_clusters(bs *BlockDriverState, size uint64) (uint64, error) {
 		if offset, err = alloc_clusters_noref(bs, size, MAX_QCOW2_SIZE); err != nil || offset < 0 {
 			return offset, err
 		}
-		err = update_refcount(bs, offset, size, 1, false)
+		err = update_refcount(bs, offset, size, 1, false, QCOW2_DISCARD_NEVER)
 		if err != ERR_EAGAIN {
 			break
 		}
@@ -521,7 +527,7 @@ func qcow2_alloc_clusters_at(bs *BlockDriverState, offset uint64, nbClusters int
 				break
 			}
 		}
-		err = update_refcount(bs, offset, i<<s.ClusterBits, 1, false)
+		err = update_refcount(bs, offset, i<<s.ClusterBits, 1, false, QCOW2_DISCARD_NEVER)
 		if err != ERR_EAGAIN {
 			break
 		}
@@ -533,8 +539,8 @@ func qcow2_alloc_clusters_at(bs *BlockDriverState, offset uint64, nbClusters int
 	return uint64(i), nil
 }
 
-func qcow2_free_clusters(bs *BlockDriverState, offset uint64, size uint64) {
-	if err := update_refcount(bs, offset, size, 1, true); err != nil {
+func qcow2_free_clusters(bs *BlockDriverState, offset uint64, size uint64, dType Qcow2DiscardType) {
+	if err := update_refcount(bs, offset, size, 1, true, dType); err != nil {
 		fmt.Printf("qcow2_free_clusters failed, err: %v\n", err)
 	}
 }
@@ -568,4 +574,57 @@ func update_max_refcount_table_index(s *BDRVQcow2State) {
 		i--
 	}
 	s.MaxRefcountTableIndex = i
+}
+
+func update_refcount_discard(bs *BlockDriverState,
+	offset uint64, length uint64) {
+
+	s := bs.opaque.(*BDRVQcow2State)
+	var d, p *Qcow2DiscardRegion
+	var i *list.Element
+
+	for i = s.Discards.Front(); i != nil; i = i.Next() {
+		d = i.Value.(*Qcow2DiscardRegion)
+		newStart := min(offset, d.offset)
+		newEnd := max(offset+length, d.offset+d.bytes)
+		if newEnd-newStart <= length+d.bytes {
+
+			d.offset = newStart
+			d.bytes = newEnd - newStart
+			goto found
+		}
+	}
+	d = &Qcow2DiscardRegion{
+		bs:     bs,
+		offset: offset,
+		bytes:  length,
+	}
+	s.Discards.PushBack(d)
+
+found:
+	/* Merge discard requests if they are adjacent now */
+	for i = s.Discards.Front(); i != nil; i = i.Next() {
+		p = i.Value.(*Qcow2DiscardRegion)
+		if p == d || p.offset > d.offset+d.bytes || d.offset > p.offset+p.bytes {
+			continue
+		}
+		s.Discards.Remove(i)
+		d.offset = min(d.offset, p.offset)
+		d.bytes += p.bytes
+	}
+
+}
+
+func qcow2_process_discards(bs *BlockDriverState, err error) {
+	s := bs.opaque.(*BDRVQcow2State)
+	var d *Qcow2DiscardRegion
+	var e *list.Element
+
+	for e = s.Discards.Front(); e != nil; e = e.Next() {
+		d = e.Value.(*Qcow2DiscardRegion)
+		s.Discards.Remove(e)
+		if err == nil {
+			bdrv_pdiscard(bs.current, d.offset, d.bytes)
+		}
+	}
 }

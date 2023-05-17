@@ -84,3 +84,14 @@ const (
 )
 
 type BdrvRequestFlags int
+
+const (
+	QCOW2_DISCARD_NEVER = iota
+	QCOW2_DISCARD_ALWAYS
+	QCOW2_DISCARD_REQUEST
+	QCOW2_DISCARD_SNAPSHOT
+	QCOW2_DISCARD_OTHER
+	QCOW2_DISCARD_MAX
+)
+
+type Qcow2DiscardType int

@@ -114,8 +114,7 @@ func execDD(inputFile string, inputFormat string, outputFile string, outputForma
 		}
 	}
 	if inRoot, err = qcow2.Blk_Open(inputFile,
-		map[string]any{qcow2.OPT_FMT: inputFormat, qcow2.OPT_L2CACHESIZE: l2CacheSize},
-		os.O_RDONLY); err != nil {
+		map[string]any{qcow2.OPT_FMT: inputFormat, qcow2.OPT_L2CACHESIZE: l2CacheSize}, qcow2.BDRV_O_RDWR); err != nil {
 		return err
 	}
 	if size, err = qcow2.Blk_Getlength(inRoot); err != nil {
@@ -130,13 +129,19 @@ func execDD(inputFile string, inputFormat string, outputFile string, outputForma
 			opts[qcow2.OPT_FILENAME] = outputFile
 			opts[qcow2.OPT_SUBCLUSTER] = true
 			qcow2.Blk_Create(outputFile, opts)
+		} else if outputFormat == "raw" {
+			opts := make(map[string]any)
+			opts[qcow2.OPT_SIZE] = size
+			opts[qcow2.OPT_FMT] = outputFormat
+			opts[qcow2.OPT_FILENAME] = outputFile
+			qcow2.Blk_Create(outputFile, opts)
 		}
 	} else {
 		return fmt.Errorf("%s exists", outputFile)
 	}
 	if outRoot, err = qcow2.Blk_Open(outputFile,
 		map[string]any{qcow2.OPT_FMT: outputFormat, qcow2.OPT_L2CACHESIZE: l2CacheSize},
-		os.O_RDWR|os.O_CREATE); err != nil {
+		qcow2.BDRV_O_RDWR); err != nil {
 		return err
 	}
 	for outPos = 0; inPos < size; blockCount++ {

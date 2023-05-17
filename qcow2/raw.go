@@ -44,6 +44,17 @@ func newRawDriver() *BlockDriver {
 	}
 }
 
+func openflag2PosixFlag(flag int) int {
+
+	var posixFlag int
+	if flag&BDRV_O_CREATE > 0 {
+		posixFlag |= os.O_CREATE
+	}
+	if flag&BDRV_O_RDWR > 0 {
+		posixFlag |= os.O_RDWR
+	}
+	return posixFlag
+}
 func raw_create(filename string, options map[string]any) error {
 
 	var file *os.File
@@ -54,7 +65,7 @@ func raw_create(filename string, options map[string]any) error {
 		return Err_IncompleteParameters
 	}
 
-	file, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE, os.FileMode(0755))
+	file, err = os.OpenFile(filename, os.O_CREATE|os.O_RDWR, os.FileMode(0755))
 	if err != nil {
 		return fmt.Errorf("failed to open %s, err: %v", filename, err)
 	}
@@ -73,7 +84,7 @@ func raw_open(filename string, options map[string]any, flags int) (*BlockDriverS
 	}
 
 	//open the qcow file
-	if file, err = os.OpenFile(filename, flags, os.FileMode(0777)); err != nil {
+	if file, err = os.OpenFile(filename, openflag2PosixFlag(flags), os.FileMode(0777)); err != nil {
 		return nil, fmt.Errorf("failed to open %s, err: %v", filename, err)
 	}
 
@@ -90,6 +101,7 @@ func raw_open(filename string, options map[string]any, flags int) (*BlockDriverS
 		SupportedWriteFlags: 0,
 		RequestAlignment:    DEFAULT_ALIGNMENT,
 		MaxTransfer:         DEFAULT_MAX_TRANSFER,
+		OpenFlags:           flags,
 	}
 
 	return bs, nil
@@ -125,7 +137,6 @@ func raw_preadv(bs *BlockDriverState, offset uint64, bytes uint64,
 func raw_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	qiov *QEMUIOVector, qiovOffset uint64, flags BdrvRequestFlags) error {
 
-	//TODO2 bytes loop
 	var localQiov QEMUIOVector
 	var err error
 	s := bs.opaque.(*BDRVRawState)
@@ -155,7 +166,6 @@ func raw_pwritev(bs *BlockDriverState, offset uint64, bytes uint64,
 func raw_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	qiov *QEMUIOVector, qiovOffset uint64, flags BdrvRequestFlags) error {
 
-	//TODO2 bytes loop
 	s := bs.opaque.(*BDRVRawState)
 	var localQiov QEMUIOVector
 	var err error

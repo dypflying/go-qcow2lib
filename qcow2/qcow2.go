@@ -43,6 +43,7 @@ func newQcow2Driver() *BlockDriver {
 		bdrv_pwrite_zeroes:   qcow2_pwrite_zeroes,
 		bdrv_copy_range_from: qcow2_copy_range_from,
 		bdrv_copy_range_to:   qcow2_copy_range_to,
+		bdrv_pdiscard:        qcow2_pdiscard,
 	}
 }
 
@@ -89,7 +90,7 @@ func qcow2_create(filename string, options map[string]any) error {
 	}
 
 	//now open the child
-	if child, err = bdrv_open_child(filename, "raw", options, os.O_RDWR|os.O_CREATE); err != nil {
+	if child, err = bdrv_open_child(filename, "raw", options, BDRV_O_CREATE|BDRV_O_RDWR); err != nil {
 		return err
 	} else {
 		bdrv_set_perm(child, PERM_ALL)
@@ -149,6 +150,7 @@ func qcow2_create(filename string, options map[string]any) error {
 		//SupportedWriteFlags: BDRV_REQ_WRITE_UNCHANGED | BDRV_REQ_FUA,
 		SupportedWriteFlags: 0,
 		RequestAlignment:    DEFAULT_ALIGNMENT,
+		PdiscardAlignment:   DEFAULT_CLUSTER_SIZE,
 		MaxTransfer:         DEFAULT_MAX_TRANSFER,
 	}
 	qcow2State.DataFile = child
@@ -266,9 +268,11 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 		options:             make(map[string]any),
 		SupportedWriteFlags: 0,
 		RequestAlignment:    DEFAULT_ALIGNMENT,
+		PdiscardAlignment:   DEFAULT_CLUSTER_SIZE,
 		MaxTransfer:         DEFAULT_MAX_TRANSFER,
 		TotalSectors:        header.Size / BDRV_SECTOR_SIZE,
 		InheritsFrom:        nil,
+		OpenFlags:           flags,
 	}
 	//update child
 	bdrv_link_child(bs, child, filename)
@@ -320,6 +324,7 @@ func initiate_qcow2_state(header *QCowHeader, enableSC bool) *BDRVQcow2State {
 		L1TableOffset:       header.L1TableOffset,
 		QcowVersion:         int(header.Version),
 		ClusterAllocs:       list.New(),
+		Discards:            list.New(),
 		get_refcount:        get_refcount,
 		set_refcount:        set_refcount,
 	}
@@ -341,6 +346,12 @@ func initiate_qcow2_state(header *QCowHeader, enableSC bool) *BDRVQcow2State {
 		s.L2Size = 1 << (header.ClusterBits - 3)
 		s.L2SliceSize = 1 << (header.ClusterBits - 3)
 	}
+
+	s.DiscardPassthrough[QCOW2_DISCARD_NEVER] = false
+	s.DiscardPassthrough[QCOW2_DISCARD_ALWAYS] = true
+	s.DiscardPassthrough[QCOW2_DISCARD_REQUEST] = true
+	s.DiscardPassthrough[QCOW2_DISCARD_SNAPSHOT] = false
+	s.DiscardPassthrough[QCOW2_DISCARD_OTHER] = false
 	return s
 }
 
@@ -760,4 +771,18 @@ func qcow2_copy_range_to(bs *BlockDriverState, src *BdrvChild, offset uint64,
 	//do nothing
 	fmt.Println("[qcow2_copy_range_to] no implementation")
 	return nil
+}
+
+func qcow2_pdiscard(bs *BlockDriverState, offset uint64, bytes uint64) error {
+	s := bs.opaque.(*BDRVQcow2State)
+	if !is_aligned(offset|bytes, uint64(s.ClusterSize)) {
+		Assert(bytes < uint64(s.ClusterSize))
+		if !is_aligned(offset, uint64(s.ClusterSize)) ||
+			offset+bytes != bs.TotalSectors*BDRV_SECTOR_SIZE {
+			return ERR_ENOTSUP
+		}
+	}
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
+	return qcow2_cluster_discard(bs, offset, bytes, QCOW2_DISCARD_REQUEST, false)
 }

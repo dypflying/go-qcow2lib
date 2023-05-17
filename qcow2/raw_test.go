@@ -26,7 +26,7 @@ func Test_raw_simple(t *testing.T) {
 		OPT_FMT:      "raw",
 	}
 
-	bs, err := raw_open(filename, open_opts, os.O_RDWR)
+	bs, err := raw_open(filename, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	s := bs.opaque.(*BDRVRawState)
 	assert.NotNil(t, s.File)
@@ -51,7 +51,7 @@ func Test_raw_write_read(t *testing.T) {
 	err = raw_create(filename, create_opts)
 	assert.Nil(t, err)
 
-	bs, err := raw_open(filename, open_opts, os.O_RDWR)
+	bs, err := raw_open(filename, open_opts, BDRV_O_RDWR)
 	bs.Drv = newRawDriver()
 	assert.Nil(t, err)
 	assert.NotNil(t, bs.Drv)
