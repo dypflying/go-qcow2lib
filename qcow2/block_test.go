@@ -26,7 +26,7 @@ func Test_block_simple(t *testing.T) {
 	err = Blk_Create(filename, create_opts)
 	assert.Nil(t, err)
 
-	root, err := Blk_Open(filename, open_opts, os.O_RDWR)
+	root, err := Blk_Open(filename, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	bs := root.GetBS()
 	s := bs.opaque.(*BDRVQcow2State)
@@ -76,7 +76,7 @@ func Test_block_read_write(t *testing.T) {
 	err = Blk_Create(filename, create_opts)
 	assert.Nil(t, err)
 
-	root, err := Blk_Open(filename, open_opts, os.O_RDWR)
+	root, err := Blk_Open(filename, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 
@@ -114,7 +114,7 @@ func Test_block_backing(t *testing.T) {
 		OPT_FILENAME: basefile,
 		OPT_FMT:      "qcow2",
 	}
-	root, err := Blk_Open(basefile, open_opts, os.O_RDWR)
+	root, err := Blk_Open(basefile, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 
@@ -142,7 +142,7 @@ func Test_block_backing(t *testing.T) {
 		OPT_FILENAME: overlayfile,
 		OPT_FMT:      "qcow2",
 	}
-	root, err = Blk_Open(overlayfile, open_opts, os.O_RDWR)
+	root, err = Blk_Open(overlayfile, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 	//read the overlay
@@ -182,7 +182,7 @@ func Test_block_backing2(t *testing.T) {
 		OPT_FMT:      "qcow2",
 	}
 
-	root, err := Blk_Open(basefile, open_opts, os.O_RDWR)
+	root, err := Blk_Open(basefile, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 
@@ -210,7 +210,7 @@ func Test_block_backing2(t *testing.T) {
 		OPT_FILENAME: overlayfile,
 		OPT_FMT:      "qcow2",
 	}
-	root, err = Blk_Open(overlayfile, open_opts, os.O_RDWR)
+	root, err = Blk_Open(overlayfile, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 	//read the overlay
@@ -243,7 +243,7 @@ func Test_block_backing2(t *testing.T) {
 		OPT_FILENAME: overlayfile2,
 		OPT_FMT:      "qcow2",
 	}
-	root, err = Blk_Open(overlayfile2, open_opts, os.O_RDWR)
+	root, err = Blk_Open(overlayfile2, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 
@@ -293,7 +293,7 @@ func Test_block_zeros(t *testing.T) {
 	err = Blk_Create(filename, create_opts)
 	assert.Nil(t, err)
 
-	root, err := Blk_Open(filename, open_opts, os.O_RDWR)
+	root, err := Blk_Open(filename, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	assert.NotNil(t, root)
 
@@ -312,4 +312,64 @@ func Test_block_zeros(t *testing.T) {
 
 	Blk_Close(root)
 	os.Remove(filename)
+}
+
+func Test_Discard(t *testing.T) {
+	var err error
+	var filename = "/tmp/test_discard.qcow2"
+
+	os.Remove(filename)
+	var create_opts = map[string]any{
+		OPT_SIZE:       1048576,
+		OPT_FILENAME:   filename,
+		OPT_FMT:        "qcow2",
+		OPT_SUBCLUSTER: true,
+	}
+
+	var open_opts = map[string]any{
+		OPT_FILENAME: filename,
+		OPT_FMT:      "qcow2",
+	}
+
+	err = Blk_Create(filename, create_opts)
+	assert.Nil(t, err)
+
+	root, err := Blk_Open(filename, open_opts, BDRV_O_RDWR|BDRV_O_UNMAP)
+	assert.Nil(t, err)
+	assert.NotNil(t, root)
+
+	buf := ([]byte)("this is a test")
+	bytes := uint64(len(buf))
+	_, err = Blk_Pwrite(root, 65536, buf, bytes, 0)
+	assert.Nil(t, err)
+
+	err = Blk_Discard(root, 65536, bytes)
+	assert.Nil(t, err)
+
+	bufOut := make([]byte, bytes)
+
+	_, err = Blk_Pread(root, 65536, bufOut, bytes)
+	assert.Nil(t, err)
+	assert.Equal(t, "this is a test", string(bufOut))
+	var stat BlockStatistic
+	scanRefcountTable(root.bs, &stat)
+	assert.Equal(t, uint64(6), stat.TotalBlocks)
+	assert.Equal(t, uint64(1), stat.DataBlocks)
+
+	err = Blk_Discard(root, 65536, DEFAULT_CLUSTER_SIZE)
+	assert.Nil(t, err)
+	_, err = Blk_Pread(root, 65536, bufOut, bytes)
+	assert.Nil(t, err)
+	for i := 0; i < int(bytes); i++ {
+		assert.Equal(t, byte(0), bufOut[i])
+	}
+
+	var stat2 BlockStatistic
+	scanRefcountTable(root.bs, &stat2)
+	assert.Equal(t, uint64(5), stat2.TotalBlocks)
+	assert.Equal(t, uint64(0), stat2.DataBlocks)
+
+	Blk_Close(root)
+	os.Remove(filename)
+
 }

@@ -121,7 +121,7 @@ fail:
 	}
 	s.L1Table[l1Index] = oldL2Offset
 	if l2Offset > 0 {
-		qcow2_free_clusters(bs, l2Offset, uint64(s.L2Size)*l2_entry_size(s))
+		qcow2_free_clusters(bs, l2Offset, uint64(s.L2Size)*l2_entry_size(s), QCOW2_DISCARD_ALWAYS)
 	}
 	return err
 }
@@ -151,7 +151,7 @@ func get_cluster_table(bs *BlockDriverState, offset uint64) (unsafe.Pointer, uin
 
 		/* Then decrease the refcount of the old table */
 		if l2Offset > 0 {
-			qcow2_free_clusters(bs, l2Offset, uint64(s.L2Size)*l2_entry_size(s))
+			qcow2_free_clusters(bs, l2Offset, uint64(s.L2Size)*l2_entry_size(s), QCOW2_DISCARD_OTHER)
 		}
 
 		/* Get the offset of the newly-allocated l2 table */
@@ -327,7 +327,7 @@ func qcow2_alloc_cluster_link_l2(bs *BlockDriverState, m *QCowL2Meta) error {
 
 	if !m.KeepOldClusters && j != 0 {
 		for i = 0; i < j; i++ {
-			qcow2_free_any_cluster(bs, oldCluster[i])
+			qcow2_free_any_cluster(bs, oldCluster[i], QCOW2_DISCARD_NEVER)
 		}
 	}
 	err = nil
@@ -839,7 +839,7 @@ func qcow2_get_cluster_type(bs *BlockDriverState, l2Entry uint64) QCow2ClusterTy
 	}
 }
 
-func qcow2_free_any_cluster(bs *BlockDriverState, l2Entry uint64) {
+func qcow2_free_any_cluster(bs *BlockDriverState, l2Entry uint64, dType Qcow2DiscardType) {
 
 	s := bs.opaque.(*BDRVQcow2State)
 	ctype := qcow2_get_cluster_type(bs, l2Entry)
@@ -851,7 +851,7 @@ func qcow2_free_any_cluster(bs *BlockDriverState, l2Entry uint64) {
 		if offset_into_cluster(s, l2Entry&L2E_OFFSET_MASK) > 0 {
 			Assert(false)
 		} else {
-			qcow2_free_clusters(bs, l2Entry&L2E_OFFSET_MASK, uint64(s.ClusterSize))
+			qcow2_free_clusters(bs, l2Entry&L2E_OFFSET_MASK, uint64(s.ClusterSize), dType)
 		}
 	case QCOW2_CLUSTER_ZERO_PLAIN, QCOW2_CLUSTER_UNALLOCATED:
 		//do nothing
@@ -1127,7 +1127,7 @@ func zero_in_l2_slice(bs *BlockDriverState, offset uint64, nbClusters uint64, fl
 
 		/* Then decrease the refcount */
 		if unmap {
-			qcow2_free_any_cluster(bs, oldL2Entry)
+			qcow2_free_any_cluster(bs, oldL2Entry, QCOW2_DISCARD_REQUEST)
 		}
 	}
 
@@ -1179,4 +1179,96 @@ out:
 func qcow2_cluster_is_allocated(ctype QCow2ClusterType) bool {
 	return (ctype == QCOW2_CLUSTER_COMPRESSED || ctype == QCOW2_CLUSTER_NORMAL ||
 		ctype == QCOW2_CLUSTER_ZERO_ALLOC)
+}
+
+/*
+ static int discard_in_l2_slice(BlockDriverState *bs, uint64_t offset,
+	uint64_t nb_clusters,
+	enum qcow2_discard_type type, bool full_discard)
+*/
+func discard_in_l2_slice(bs *BlockDriverState, offset uint64, nbClusters uint64,
+	dType Qcow2DiscardType, fullDiscard bool) (uint64, error) {
+
+	s := bs.opaque.(*BDRVQcow2State)
+	var l2Slice unsafe.Pointer
+	var l2Index uint32
+	var err error
+	var i uint32
+
+	if l2Slice, l2Index, err = get_cluster_table(bs, offset); err != nil {
+		return 0, err
+	}
+	/* Limit nb_clusters to one L2 slice */
+	nbClusters = min(nbClusters, uint64(s.L2SliceSize)-uint64(l2Index))
+	for i = 0; i < uint32(nbClusters); i++ {
+		old_l2_entry := get_l2_entry(s, l2Slice, l2Index+i)
+		old_l2_bitmap := get_l2_bitmap(s, l2Slice, l2Index+i)
+		new_l2_entry := old_l2_entry
+		new_l2_bitmap := old_l2_bitmap
+		clusterType := qcow2_get_cluster_type(bs, old_l2_entry)
+		if fullDiscard {
+			new_l2_bitmap = 0
+			new_l2_entry = 0
+		} else if bs.backing != nil || qcow2_cluster_is_allocated(clusterType) {
+			if has_subclusters(s) {
+				new_l2_entry = 0
+				new_l2_bitmap = QCOW_L2_BITMAP_ALL_ZEROES
+			} else {
+				new_l2_entry = QCOW_OFLAG_ZERO
+			}
+		}
+
+		if old_l2_entry == new_l2_entry && old_l2_bitmap == new_l2_bitmap {
+			continue
+		}
+
+		/* First remove L2 entries */
+		qcow2_cache_entry_mark_dirty(s.L2TableCache, l2Slice)
+		set_l2_entry(s, l2Slice, l2Index+i, new_l2_entry)
+		if has_subclusters(s) {
+			set_l2_bitmap(s, l2Slice, l2Index+i, new_l2_bitmap)
+		}
+		/* Then decrease the refcount */
+		qcow2_free_any_cluster(bs, old_l2_entry, dType)
+	}
+
+	qcow2_cache_put(s.L2TableCache, l2Slice)
+	return nbClusters, nil
+}
+
+/*
+int qcow2_cluster_discard(BlockDriverState *bs, uint64_t offset,
+                          uint64_t bytes, enum qcow2_discard_type type,
+                          bool full_discard)
+*/
+
+func qcow2_cluster_discard(bs *BlockDriverState, offset uint64, bytes uint64,
+	dType Qcow2DiscardType, fullDiscard bool) error {
+
+	s := bs.opaque.(*BDRVQcow2State)
+	var nbClusters uint64
+	var cleared uint64
+	var err error
+
+	nbClusters = size_to_clusters(s, bytes)
+
+	s.CacheDiscards = true
+
+	/* Each L2 slice is handled by its own loop iteration */
+	for nbClusters > 0 {
+		if cleared, err = discard_in_l2_slice(bs, offset, nbClusters, dType,
+			fullDiscard); err != nil {
+			goto fail
+		}
+
+		nbClusters -= cleared
+		offset += (cleared * uint64(s.ClusterSize))
+	}
+
+	err = nil
+fail:
+	s.CacheDiscards = false
+	qcow2_process_discards(bs, err)
+
+	return err
 }

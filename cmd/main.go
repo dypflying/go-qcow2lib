@@ -20,15 +20,75 @@ SOFTWARE.
 */
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"strings"
+	"time"
+
+	"net/http"
+	_ "net/http/pprof"
+	rpprof "runtime/pprof"
 
 	"github.com/dypflying/go-qcow2lib/cmd/subcmd"
 )
 
+var (
+	daemonExitCh chan os.Signal
+)
+
 func main() {
+
+	pprofWait := setupPprof()
+
 	if err := subcmd.NewCommand().Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
+	}
+	if pprofWait {
+		daemonExitCh = make(chan os.Signal)
+		signal.Notify(daemonExitCh, os.Interrupt, os.Kill)
+		daemonize(context.Background())
+	}
+}
+
+func setupPprof() bool {
+	var profType string
+	if profType = os.Getenv("PPROF"); profType != "" {
+		defer time.Sleep(time.Second)
+		if strings.ToLower(profType) == "http" {
+			go func() {
+				http.ListenAndServe("localhost:8081", nil)
+			}()
+			fmt.Println("check pprof at: http://localhost:8081/debug/pprof")
+			return true
+		} else {
+			var pprofFile = "/tmp/qcow2pprof.profile"
+			f, err := os.Create(pprofFile)
+			if err != nil {
+				log.Fatal(err)
+			}
+			rpprof.StartCPUProfile(f)
+			defer rpprof.StopCPUProfile()
+			fmt.Printf("check pprof at: %s\n", pprofFile)
+		}
+	}
+	return false
+}
+
+func daemonize(ctx context.Context) {
+
+	exitCh := ctx.Done()
+	for {
+		select {
+		case <-daemonExitCh:
+			fmt.Println("Catch exit signal, exiting")
+			return
+		case <-exitCh:
+			fmt.Println("Context terminated,  exiting")
+			return
+		}
 	}
 }

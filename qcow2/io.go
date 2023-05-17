@@ -959,9 +959,7 @@ func bdrv_link_backing(parent *BlockDriverState, child *BdrvChild, childName str
 }
 
 func bdrv_opt_mem_align(bs *BlockDriverState) uint64 {
-	//TODO1: what alignment number is best choice?
-	return uint64(512)
-	//return uint64(1)
+	return uint64(DEFAULT_ALIGNMENT)
 }
 
 func bdrv_getlength(bs *BlockDriverState) (uint64, error) {
@@ -1068,4 +1066,66 @@ func bdrv_direct_pwrite(child *BdrvChild, offset int64, object any, size int64) 
 		return -1, err
 	}
 	return n, nil
+}
+
+func bdrv_pdiscard(child *BdrvChild, offset uint64, bytes uint64) error {
+
+	var head, tail, align uint64
+	bs := child.bs
+	var err error
+
+	if bs == nil || bs.Drv == nil {
+		return Err_NoDriverFound
+	}
+
+	if bs.OpenFlags&BDRV_O_UNMAP == 0 {
+		return nil
+	}
+
+	//depends on driver to execute the discard
+	if bs.Drv.bdrv_pdiscard == nil {
+		return Err_NoDriverFound
+	}
+
+	align = uint64(max(bs.RequestAlignment, bs.PdiscardAlignment))
+	head = offset % align
+	tail = (offset + bytes) % align
+
+	atomic.AddUint64(&bs.InFlight, 1)
+
+	for bytes > 0 {
+		num := bytes
+
+		if head > 0 {
+			/* Make small requests to get to alignment boundaries. */
+			num = min(bytes, align-head)
+			if !is_aligned(num, uint64(bs.RequestAlignment)) {
+				num %= uint64(bs.RequestAlignment)
+			}
+			head = (head + num) % align
+		} else if tail > 0 {
+			if num > align {
+				num -= tail
+			} else if !is_aligned(tail, uint64(bs.RequestAlignment)) &&
+				tail > uint64(bs.RequestAlignment) {
+				tail = tail % uint64(bs.RequestAlignment)
+				num -= tail
+			}
+		}
+		if bs.Drv.bdrv_pdiscard != nil {
+			err = bs.Drv.bdrv_pdiscard(bs, offset, num)
+		}
+		if err != nil && err != ERR_ENOTSUP {
+			goto out
+		}
+
+		offset += num
+		bytes -= num
+	}
+	err = nil
+out:
+	// bdrv_co_write_req_finish(child, req.offset, req.bytes, &req, ret);
+	atomic.AddUint64(&bs.InFlight, ^uint64(0))
+
+	return err
 }

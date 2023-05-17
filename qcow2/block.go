@@ -189,6 +189,15 @@ func Blk_Getlength(child *BdrvChild) (uint64, error) {
 	return ret * BDRV_SECTOR_SIZE, nil
 }
 
+func Blk_Discard(child *BdrvChild, offset uint64, bytes uint64) error {
+	return bdrv_pdiscard(child, offset, bytes)
+}
+
+func Blk_Info(child *BdrvChild, detail bool, pretty bool) string {
+	bs := child.bs
+	return bs.Info(detail, pretty)
+}
+
 func get_driver(fmt string) *BlockDriver {
 	switch fmt {
 	case "raw":

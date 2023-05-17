@@ -110,6 +110,7 @@ type BDRVQcow2State struct {
 
 	//QLIST_HEAD(, QCowL2Meta) cluster_allocs;
 	ClusterAllocs *list.List
+	Discards      *list.List
 
 	IncompatibleFeatures uint64
 
@@ -117,6 +118,9 @@ type BDRVQcow2State struct {
 	set_refcount Set_Refcount_Func
 
 	DataFile *BdrvChild
+
+	CacheDiscards      bool
+	DiscardPassthrough [QCOW2_DISCARD_MAX]bool
 }
 
 type QCowL2Meta struct {
@@ -201,8 +205,9 @@ type BlockDriverState struct {
 	current     *BdrvChild
 	options     map[string]any
 	//static configuration
-	RequestAlignment uint32
-	MaxTransfer      uint32
+	RequestAlignment  uint32
+	PdiscardAlignment uint32
+	MaxTransfer       uint32
 	//statistic information
 	InFlight            uint64
 	SupportedWriteFlags uint64
@@ -341,6 +346,7 @@ type Bdrv_Copy_Range_From_Func func(bs *BlockDriverState, src *BdrvChild, srcOff
 type Bdrv_Copy_Range_To_Func func(bs *BlockDriverState, src *BdrvChild, srcOffset uint64,
 	dst *BdrvChild, dstOffset uint64, bytes uint64,
 	readFlags BdrvRequestFlags, writeFlags BdrvRequestFlags) error
+type Bdrv_Pdiscard_Func func(bs *BlockDriverState, offset uint64, bytes uint64) error
 
 type BlockDriver struct {
 	FormatName     string
@@ -363,6 +369,7 @@ type BlockDriver struct {
 	bdrv_getlength       Bdrv_Getlength_Func
 	bdrv_copy_range_from Bdrv_Copy_Range_From_Func //for convert copy
 	bdrv_copy_range_to   Bdrv_Copy_Range_To_Func   //for convert copy
+	bdrv_pdiscard        Bdrv_Pdiscard_Func
 }
 
 type BlockInfo struct {
@@ -386,4 +393,11 @@ type BlockStatistic struct {
 	L2Blocks            uint64 `json:"l2 blocks,omitempty"`
 	RecountBlocks       uint64 `json:"refcount blocks,omitempty"`
 	DataBlocks          uint64 `json:"data blocks,omitempty"`
+}
+
+type Qcow2DiscardRegion struct {
+	bs     *BlockDriverState
+	offset uint64
+	bytes  uint64
+	next   *Qcow2DiscardRegion
 }

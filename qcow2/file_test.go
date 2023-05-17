@@ -31,7 +31,7 @@ func Test_Pwritev_Preadv(t *testing.T) {
 	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf1[0]), length1*8)
 	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf2[0]), length2*8)
 	assert.Equal(t, 2, qiov.niov)
-	file, err := os.OpenFile("/tmp/test.txt", os.O_RDWR|os.O_CREATE, os.FileMode(0755))
+	file, err := os.OpenFile("/tmp/test.txt", os.O_CREATE|os.O_RDWR, os.FileMode(0755))
 	assert.Nil(t, err)
 
 	n, err := pwritev(context.Background(), file, qiov.iov, qiov.niov, 512)

@@ -27,7 +27,7 @@ func Test_qcow2_simple(t *testing.T) {
 	err = qcow2_create(filename, create_opts)
 	assert.Nil(t, err)
 
-	bs, err := qcow2_open(filename, open_opts, os.O_RDWR)
+	bs, err := qcow2_open(filename, open_opts, BDRV_O_RDWR)
 	assert.Nil(t, err)
 	s := bs.opaque.(*BDRVQcow2State)
 	assert.NotNil(t, bs.opaque)
@@ -93,7 +93,7 @@ func Test_qcow2_write_read(t *testing.T) {
 	err = qcow2_create(filename, create_opts)
 	assert.Nil(t, err)
 
-	bs, err := qcow2_open(filename, open_opts, os.O_RDWR)
+	bs, err := qcow2_open(filename, open_opts, BDRV_O_RDWR)
 	bs.Drv = newQcow2Driver()
 	assert.Nil(t, err)
 	assert.NotNil(t, bs.Drv)
@@ -136,7 +136,7 @@ func Test_qcow2_backup_write_read(t *testing.T) {
 		OPT_FMT:      "qcow2",
 	}
 	//open base
-	bs, err := qcow2_open(basefile, open_opts, os.O_RDWR)
+	bs, err := qcow2_open(basefile, open_opts, BDRV_O_RDWR)
 	bs.Drv = newQcow2Driver()
 	assert.Nil(t, err)
 	//write to the base
@@ -165,7 +165,7 @@ func Test_qcow2_backup_write_read(t *testing.T) {
 		OPT_FILENAME: overlayfile,
 		OPT_FMT:      "qcow2",
 	}
-	bs, err = qcow2_open(overlayfile, open_opts, os.O_RDWR)
+	bs, err = qcow2_open(overlayfile, open_opts, BDRV_O_RDWR)
 	bs.Drv = newQcow2Driver()
 	assert.Nil(t, err)
 	//read from the overlay
@@ -201,7 +201,7 @@ func Test_qcow2_write_read_zeros(t *testing.T) {
 	err = qcow2_create(filename, create_opts)
 	assert.Nil(t, err)
 
-	bs, err := qcow2_open(filename, open_opts, os.O_RDWR)
+	bs, err := qcow2_open(filename, open_opts, BDRV_O_RDWR)
 	bs.Drv = newQcow2Driver()
 	assert.Nil(t, err)
 	assert.NotNil(t, bs.Drv)
