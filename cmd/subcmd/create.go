@@ -32,6 +32,7 @@ type CreateOptions struct {
 	BackingPath string
 	Size        string
 	SubCluster  bool
+	DataFile    string
 }
 
 func newCreateCmd() *cobra.Command {
@@ -52,7 +53,7 @@ func newCreateCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			err := createQcow2(opts.FilePath, size, opts.SubCluster, opts.BackingPath)
+			err := createQcow2(opts.FilePath, size, opts.SubCluster, opts.BackingPath, opts.DataFile)
 			if err != nil {
 				fmt.Printf("create qcow2 file failed, err:%v\n", err)
 			} else {
@@ -67,10 +68,11 @@ func newCreateCmd() *cobra.Command {
 	flags.StringVarP(&opts.Size, "size", "s", "", "specify the size of file, valid unit is 'k', 'm', 'g', 't', limited to 4t. ")
 	flags.BoolVarP(&opts.SubCluster, "enable-subcluster", "", false, "")
 	flags.StringVarP(&opts.BackingPath, "backing", "b", "", "specify the backing file path")
+	flags.StringVarP(&opts.DataFile, "datafile", "d", "", "specify the external data file path")
 	return cmd
 }
 
-func createQcow2(filename string, size uint64, subcluster bool, backing string) error {
+func createQcow2(filename string, size uint64, subcluster bool, backing string, datafile string) error {
 
 	var err error
 	opts := make(map[string]any)
@@ -79,6 +81,7 @@ func createQcow2(filename string, size uint64, subcluster bool, backing string) 
 	opts[qcow2.OPT_FILENAME] = filename
 	opts[qcow2.OPT_SUBCLUSTER] = subcluster
 	opts[qcow2.OPT_BACKING] = backing
+	opts[qcow2.OPT_DATAFILE] = datafile
 
 	if err = qcow2.Blk_Create(filename, opts); err != nil {
 		fmt.Printf("failed to create qcow2 file: %s, err: %v\n", filename, err)

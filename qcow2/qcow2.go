@@ -57,6 +57,17 @@ func qcow2_close(bs *BlockDriverState) {
 	s.L1Table = nil
 	qcow2_cache_destroy(s.L2TableCache)
 	qcow2_cache_destroy(s.RefcountBlockCache)
+	if bs.current != nil {
+		bdrv_close(bs.current.bs)
+	}
+	if bs.backing != nil {
+		bdrv_close(bs.backing.bs)
+	}
+	if has_data_file(bs) {
+		bdrv_close(s.DataFile.bs)
+		s.DataFile = nil
+	}
+
 }
 
 func qcow2_create(filename string, options map[string]any) error {
@@ -66,6 +77,7 @@ func qcow2_create(filename string, options map[string]any) error {
 	var backingFile string
 	var child *BdrvChild
 	var enableSc bool
+	var dataFile string
 
 	//check file name
 	if filename == "" {
@@ -87,6 +99,11 @@ func qcow2_create(filename string, options map[string]any) error {
 	//check enable subcluster
 	if val, ok := options[OPT_SUBCLUSTER]; ok {
 		enableSc = val.(bool)
+	}
+
+	//data file
+	if val, ok := options[OPT_DATAFILE]; ok {
+		dataFile = val.(string)
 	}
 
 	//now open the child
@@ -129,6 +146,10 @@ func qcow2_create(filename string, options map[string]any) error {
 		header.IncompatibleFeatures |= QCOW2_INCOMPAT_EXTL2
 		header.L1Size = header.L1Size * 2
 	}
+	if dataFile != "" {
+		header.IncompatibleFeatures |= QCOW2_INCOMPAT_DATA_FILE
+		header.AutoclearFeatures |= QCOW2_AUTOCLEAR_DATA_FILE_RAW
+	}
 	//set the backing file
 	if backingFile != "" {
 		header.BackingFileOffset = BACKING_FILE_OFFSET
@@ -153,14 +174,29 @@ func qcow2_create(filename string, options map[string]any) error {
 		PdiscardAlignment:   DEFAULT_CLUSTER_SIZE,
 		MaxTransfer:         DEFAULT_MAX_TRANSFER,
 	}
-	qcow2State.DataFile = child
-	bdrv_link_child(bs, child, filename)
 
+	bdrv_link_child(bs, child, filename)
 	//write the header to buffer in big-endian manner
 	if _, err := Blk_Pwrite_Object(bs.current, 0, header, uint64(unsafe.Sizeof(*header))); err != nil {
 		return err
 	}
+	//write the data file if any
+	if dataFile != "" {
+		if err = header_ext_add_external_data_file(bs, uint64(unsafe.Sizeof(QCowHeader{})), dataFile); err != nil {
+			return err
+		}
+		var dataChild *BdrvChild
+		//now open the child
+		if dataChild, err = bdrv_open_child(dataFile, "raw", options, BDRV_O_CREATE|BDRV_O_RDWR); err != nil {
+			return err
+		} else {
+			bdrv_set_perm(dataChild, PERM_ALL)
+			qcow2State.DataFile = dataChild
+		}
 
+	} else {
+		qcow2State.DataFile = child
+	}
 	//write the backing file
 	if backingFile != "" {
 		if _, err := Blk_Pwrite_Object(bs.current, BACKING_FILE_OFFSET,
@@ -211,6 +247,7 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 	var enableSc bool
 	var l2CacheSize uint64
 	var l2CacehNum uint32
+	var dataFile string
 
 	//check file name
 	if filename == "" {
@@ -258,13 +295,14 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 	if header.IncompatibleFeatures&QCOW2_INCOMPAT_EXTL2 > 0 {
 		enableSc = true
 	}
-	opaque := initiate_qcow2_state(&header, enableSc)
-	opaque.DataFile = child
+
+	qcow2State := initiate_qcow2_state(&header, enableSc)
+	//opaque.DataFile = child
 	//initiate the BlockDriverState struct
 	bs := &BlockDriverState{
 		filename:            filename,
 		backingFile:         backingFile,
-		opaque:              opaque, //initiate the BDRVQcow2State struct
+		opaque:              qcow2State, //initiate the BDRVQcow2State struct
 		options:             make(map[string]any),
 		SupportedWriteFlags: 0,
 		RequestAlignment:    DEFAULT_ALIGNMENT,
@@ -281,15 +319,33 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 		bdrv_link_backing(bs, backing, backingFile)
 	}
 
+	if header.IncompatibleFeatures&QCOW2_INCOMPAT_DATA_FILE > 0 {
+		//read the header ext
+		if dataFile, err = header_ext_read_external_data_file(bs, uint64(unsafe.Sizeof(header))); err != nil {
+			return nil, err
+		}
+		var dataChild *BdrvChild
+		//now open the child
+		if dataChild, err = bdrv_open_child(dataFile, "raw", opts, flags); err != nil {
+			return nil, err
+		} else {
+			bdrv_set_perm(dataChild, PERM_ALL)
+			dataChild.name = dataFile
+			qcow2State.DataFile = dataChild
+		}
+	} else {
+		qcow2State.DataFile = child
+	}
+
 	//load refcount table
 	if err = qcow2_refcount_init(bs); err != nil {
 		return nil, fmt.Errorf("could not initialize refcount table, err: %v", err)
 	}
 	//load l1 table
-	if opaque.L1Size > 0 {
-		opaque.L1Table = make([]uint64, opaque.L1Size)
-		if _, err = Blk_Pread_Object(bs.current, opaque.L1TableOffset, opaque.L1Table,
-			uint64(opaque.L1Size)*SIZE_UINT64); err != nil {
+	if qcow2State.L1Size > 0 {
+		qcow2State.L1Table = make([]uint64, qcow2State.L1Size)
+		if _, err = Blk_Pread_Object(bs.current, qcow2State.L1TableOffset, qcow2State.L1Table,
+			uint64(qcow2State.L1Size)*SIZE_UINT64); err != nil {
 			return nil, fmt.Errorf("could not read L1 table")
 		}
 	}
@@ -299,13 +355,13 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 		l2CacheSize = round_up(l2CacheSize, DEFAULT_CLUSTER_SIZE)
 		l2CacehNum = uint32(l2CacheSize / DEFAULT_CLUSTER_SIZE)
 	} else {
-		l2CacehNum = opaque.L1Size
+		l2CacehNum = qcow2State.L1Size
 	}
-	opaque.L2TableCache = qcow2_cache_create(bs, l2CacehNum, opaque.ClusterSize)
+	qcow2State.L2TableCache = qcow2_cache_create(bs, l2CacehNum, qcow2State.ClusterSize)
 	//since the refcount block cache must be less than 50% of l2 table cache,
 	//so 50% of l2 cache is good enough for refcount block cache
 	refcountCacheNum := max(l2CacehNum/2, 1)
-	opaque.RefcountBlockCache = qcow2_cache_create(bs, refcountCacheNum, opaque.ClusterSize)
+	qcow2State.RefcountBlockCache = qcow2_cache_create(bs, refcountCacheNum, qcow2State.ClusterSize)
 
 	return bs, nil
 }
@@ -519,7 +575,6 @@ func qcow2_handle_l2meta(bs *BlockDriverState, pl2meta **QCowL2Meta, linkL2 bool
 
 	s := bs.opaque.(*BDRVQcow2State)
 	for l2meta != nil {
-
 		if linkL2 {
 			if err = qcow2_alloc_cluster_link_l2(bs, l2meta); err != nil {
 				goto out
@@ -528,11 +583,7 @@ func qcow2_handle_l2meta(bs *BlockDriverState, pl2meta **QCowL2Meta, linkL2 bool
 			qcow2_alloc_cluster_abort(bs, l2meta)
 		}
 
-		/* Take the request off the list of running requests */
-		// QLIST_REMOVE(l2meta, next_in_flight);
 		s.ClusterAllocs.Remove(l2meta.NextInFlight)
-
-		//qemu_co_queue_restart_all(&l2meta->dependent_requests);
 		l2meta = l2meta.Next
 	}
 
@@ -785,4 +836,44 @@ func qcow2_pdiscard(bs *BlockDriverState, offset uint64, bytes uint64) error {
 	s.Lock.Lock()
 	defer s.Lock.Unlock()
 	return qcow2_cluster_discard(bs, offset, bytes, QCOW2_DISCARD_REQUEST, false)
+}
+
+//write the ext header after the qcow2 regular header
+func header_ext_add_external_data_file(bs *BlockDriverState, offset uint64, dataFile string) error {
+	extHeader := &QCowExtension{
+		Magic:  QCOW2_EXT_MAGIC_DATA_FILE,
+		Length: uint32(len(dataFile)),
+	}
+	extLen := uint64(unsafe.Sizeof(*extHeader))
+	//write to the ext header
+	if _, err := Blk_Pwrite_Object(bs.current, offset, extHeader, extLen); err != nil {
+		return err
+	}
+	//write the external data
+	if _, err := Blk_Pwrite_Object(bs.current, offset+extLen, ([]byte)(dataFile), uint64(len(dataFile))); err != nil {
+		return err
+	}
+	return nil
+}
+
+func header_ext_read_external_data_file(bs *BlockDriverState, offset uint64) (string, error) {
+
+	var extHeader QCowExtension
+	extLen := uint64(unsafe.Sizeof(extHeader))
+	//read the ext header
+	if _, err := Blk_Pread_Object(bs.current, offset, &extHeader, extLen); err != nil {
+		return "", fmt.Errorf("qcow2 external data file read fail, err: %v", err)
+	}
+	if extHeader.Magic != QCOW2_EXT_MAGIC_DATA_FILE || extHeader.Length == 0 {
+		return "", nil
+	}
+	//read the data file path
+	var dataFile string
+	bytes := make([]byte, extHeader.Length)
+	if _, err := Blk_Pread_Object(bs.current, offset+extLen, bytes, uint64(extHeader.Length)); err != nil {
+		return "", fmt.Errorf("qcow2 external data file read fail, err: %v", err)
+	} else {
+		dataFile = string(bytes)
+	}
+	return dataFile, nil
 }

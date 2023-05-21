@@ -59,10 +59,11 @@ func zero_close(root *qcow2.BdrvChild) {
 	qcow2.Blk_Close(root)
 }
 
+/*
 func main() {
 	zero_create()
 	root := zero_open()
 	zero_write(root)
 	zero_read(root)
 	zero_close(root)
-}
+}*/

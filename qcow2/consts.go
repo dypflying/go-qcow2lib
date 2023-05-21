@@ -95,6 +95,15 @@ const (
 	QCOW2_INCOMPAT_MASK              = QCOW2_INCOMPAT_DIRTY | QCOW2_INCOMPAT_CORRUPT | QCOW2_INCOMPAT_DATA_FILE | QCOW2_INCOMPAT_COMPRESSION | QCOW2_INCOMPAT_EXTL2
 )
 
+/* Autoclear feature bits */
+const (
+	QCOW2_AUTOCLEAR_BITMAPS_BITNR       = 0
+	QCOW2_AUTOCLEAR_DATA_FILE_RAW_BITNR = 1
+	QCOW2_AUTOCLEAR_BITMAPS             = 1 << QCOW2_AUTOCLEAR_BITMAPS_BITNR
+	QCOW2_AUTOCLEAR_DATA_FILE_RAW       = 1 << QCOW2_AUTOCLEAR_DATA_FILE_RAW_BITNR
+	QCOW2_AUTOCLEAR_MASK                = QCOW2_AUTOCLEAR_BITMAPS | QCOW2_AUTOCLEAR_DATA_FILE_RAW
+)
+
 // cluster type
 const (
 	QCOW2_CLUSTER_UNALLOCATED = iota
@@ -193,6 +202,7 @@ const (
 	OPT_BACKING     = "backing"
 	OPT_SUBCLUSTER  = "enable-subcluster"
 	OPT_L2CACHESIZE = "l2-cache-size"
+	OPT_DATAFILE    = "datafile"
 )
 
 /* permission constants */
@@ -207,3 +217,6 @@ const (
 
 const Max_WRITE_ZEROS = uint64(65536)
 const MAX_BOUNCE_BUFFER = uint64(32768 << 9)
+
+//external data file magic number
+const QCOW2_EXT_MAGIC_DATA_FILE = uint32(0x44415441)
