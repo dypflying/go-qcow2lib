@@ -233,7 +233,6 @@ func qcow2_get_host_offset(bs *BlockDriverState, offset uint64, bytes *uint32,
 	case QCOW2_SUBCLUSTER_INVALID:
 		//do nothing
 	case QCOW2_SUBCLUSTER_COMPRESSED:
-		// *hostOffset = l2Entry & L2E_COMPRESSED_OFFSET_SIZE_MASK;
 		//do nothing
 	case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN:
 		//do nothing
@@ -245,7 +244,10 @@ func qcow2_get_host_offset(bs *BlockDriverState, offset uint64, bytes *uint32,
 			err = ERR_EIO
 			goto fail
 		}
-
+		if has_data_file(bs) && *hostOffset != offset {
+			err = ERR_EIO
+			goto fail
+		}
 	default:
 		Assert(false)
 	}
@@ -336,7 +338,11 @@ err:
 }
 
 func qcow2_alloc_cluster_abort(bs *BlockDriverState, m *QCowL2Meta) {
-	//do nothing
+	s := bs.opaque.(*BDRVQcow2State)
+	if !has_data_file(bs) && !m.KeepOldClusters {
+		qcow2_free_clusters(bs, m.AllocOffset, uint64(m.NbClusters<<s.ClusterBits),
+			QCOW2_DISCARD_NEVER)
+	}
 }
 
 func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
@@ -528,6 +534,12 @@ func do_alloc_cluster_offset(bs *BlockDriverState, guestOffset uint64, hostOffse
 	s := bs.opaque.(*BDRVQcow2State)
 	var clusterOffset, n uint64
 	var err error
+
+	if has_data_file(bs) {
+		*hostOffset = start_of_cluster(s, guestOffset)
+		return nil
+	}
+
 	if *hostOffset == INV_OFFSET {
 		if clusterOffset, err = qcow2_alloc_clusters(bs, *nbClusters*uint64(s.ClusterSize)); err != nil {
 			return err
@@ -833,7 +845,11 @@ func qcow2_get_cluster_type(bs *BlockDriverState, l2Entry uint64) QCow2ClusterTy
 		}
 		return QCOW2_CLUSTER_ZERO_PLAIN
 	} else if l2Entry&L2E_OFFSET_MASK == 0 {
-		return QCOW2_CLUSTER_UNALLOCATED
+		if has_data_file(bs) && l2Entry&QCOW_OFLAG_COPIED > 0 {
+			return QCOW2_CLUSTER_NORMAL
+		} else {
+			return QCOW2_CLUSTER_UNALLOCATED
+		}
 	} else {
 		return QCOW2_CLUSTER_NORMAL
 	}
@@ -843,6 +859,15 @@ func qcow2_free_any_cluster(bs *BlockDriverState, l2Entry uint64, dType Qcow2Dis
 
 	s := bs.opaque.(*BDRVQcow2State)
 	ctype := qcow2_get_cluster_type(bs, l2Entry)
+
+	if has_data_file(bs) {
+		if s.DiscardPassthrough[dType] &&
+			(ctype == QCOW2_CLUSTER_NORMAL ||
+				ctype == QCOW2_CLUSTER_ZERO_ALLOC) {
+			bdrv_pdiscard(s.DataFile, l2Entry&L2E_OFFSET_MASK, uint64(s.ClusterSize))
+		}
+		return
+	}
 
 	switch ctype {
 	case QCOW2_CLUSTER_COMPRESSED:

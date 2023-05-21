@@ -136,11 +136,8 @@ type QCowL2Meta struct {
 	DataQiovOffset uint64
 
 	/** Pointer to next L2Meta of the same write request */
-	Next *QCowL2Meta
-
+	Next         *QCowL2Meta
 	NextInFlight *list.Element
-	//QLIST_ENTRY(QCowL2Meta) next_in_flight;
-
 }
 
 type Qcow2COWRegion struct {
@@ -254,6 +251,10 @@ func (bs *BlockDriverState) Info(detail bool, pretty bool) string {
 	//get backing chain
 	if bs.backing != nil {
 		getBackingChain(bs.backing, &info.BakcingFileChain)
+	}
+	if has_data_file(bs) {
+		s := bs.opaque.(*BDRVQcow2State)
+		info.DataFile = s.DataFile.name
 	}
 
 	//get statistic information
@@ -382,6 +383,7 @@ type BlockInfo struct {
 	ExtendedL2   bool   `json:"extend l2"`
 	//backing chain
 	BakcingFileChain []string        `json:"backing chain"`
+	DataFile         string          `json:"data file,omitempty"`
 	Statistic        *BlockStatistic `json:"stat,omitempty"`
 }
 
@@ -400,4 +402,14 @@ type Qcow2DiscardRegion struct {
 	offset uint64
 	bytes  uint64
 	next   *Qcow2DiscardRegion
+}
+
+func has_data_file(bs *BlockDriverState) bool {
+	s := bs.opaque.(*BDRVQcow2State)
+	return s.DataFile != bs.current
+}
+
+type QCowExtension struct {
+	Magic  uint32
+	Length uint32
 }

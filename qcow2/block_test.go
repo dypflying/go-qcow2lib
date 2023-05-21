@@ -373,3 +373,47 @@ func Test_Discard(t *testing.T) {
 	os.Remove(filename)
 
 }
+
+func Test_data_file(t *testing.T) {
+	var err error
+	var filename = "/tmp/test_datafile.qcow2"
+	var datafile = "/tmp/datafile.img"
+
+	os.Remove(filename)
+	os.Remove(datafile)
+	var create_opts = map[string]any{
+		OPT_SIZE:     1048576,
+		OPT_FILENAME: filename,
+		OPT_FMT:      "qcow2",
+		//OPT_SUBCLUSTER: false,
+		OPT_SUBCLUSTER: true,
+		OPT_DATAFILE:   datafile,
+	}
+
+	var open_opts = map[string]any{
+		OPT_FILENAME: filename,
+		OPT_FMT:      "qcow2",
+	}
+
+	err = Blk_Create(filename, create_opts)
+	assert.Nil(t, err)
+
+	root, err := Blk_Open(filename, open_opts, BDRV_O_RDWR)
+	assert.Nil(t, err)
+	assert.NotNil(t, root)
+
+	buf := ([]byte)("this is a test")
+	bytes := uint64(len(buf))
+	_, err = Blk_Pwrite(root, 123, buf, bytes, 0)
+	assert.Nil(t, err)
+
+	bufOut := make([]byte, bytes)
+
+	_, err = Blk_Pread(root, 123, bufOut, bytes)
+	assert.Nil(t, err)
+	assert.Equal(t, "this is a test", string(bufOut))
+
+	Blk_Close(root)
+	os.Remove(filename)
+	os.Remove(datafile)
+}

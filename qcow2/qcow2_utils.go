@@ -83,7 +83,6 @@ func get_l2_entry(s *BDRVQcow2State, l2Slice unsafe.Pointer, idx uint32) uint64 
 func set_l2_entry(s *BDRVQcow2State, l2Slice unsafe.Pointer, idx uint32, entry uint64) {
 	idx *= uint32(l2_entry_size(s) / SIZE_UINT64)
 	*(*uint64)(unsafe.Pointer(uintptr(l2Slice) + uintptr(idx*uint32(SIZE_UINT64)))) = cpu_to_be64(entry)
-	//*(*uint64)(unsafe.Pointer(uintptr(l2Slice) + uintptr(idx*uint32(SIZE_UINT64)))) = entry
 }
 
 func get_l2_bitmap(s *BDRVQcow2State, l2Slice unsafe.Pointer, idx uint32) uint64 {
@@ -99,7 +98,6 @@ func get_l2_bitmap(s *BDRVQcow2State, l2Slice unsafe.Pointer, idx uint32) uint64
 
 func set_l2_bitmap(s *BDRVQcow2State, l2Slice unsafe.Pointer, idx uint32, bitmap uint64) {
 	idx *= uint32(l2_entry_size(s) / SIZE_UINT64)
-	//*(*uint64)(unsafe.Pointer(uintptr(l2Slice) + uintptr((idx+1)*uint32(SIZE_UINT64)))) = bitmap
 	*(*uint64)(unsafe.Pointer(uintptr(l2Slice) + uintptr((idx+1)*uint32(SIZE_UINT64)))) = cpu_to_be64(bitmap)
 }
 
