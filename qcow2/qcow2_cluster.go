@@ -953,7 +953,7 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 		Qemu_Iovec_Init(&qiov, 2)
 	}
 
-	s.Lock.Unlock()
+	s.Qunlock()
 
 	if mergeReads {
 		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&startBuffer[0]), bufferSize)
@@ -964,9 +964,11 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 			goto fail
 		}
 
-		Qemu_Iovec_Reset(&qiov)
-		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
-		err = do_perform_cow_read(bs, m.Offset, end.Offset, &qiov)
+		if end.NbBytes > 0 {
+			Qemu_Iovec_Reset(&qiov)
+			Qemu_Iovec_Add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
+			err = do_perform_cow_read(bs, m.Offset, end.Offset, &qiov)
+		}
 	}
 	if err != nil {
 		goto fail
@@ -995,7 +997,7 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 		err = do_perform_cow_write(bs, m.AllocOffset, end.Offset, &qiov)
 	}
 fail:
-	s.Lock.Lock()
+	s.Qlock()
 	if err == nil {
 		qcow2_cache_depends_on_flush(s.L2TableCache)
 	}

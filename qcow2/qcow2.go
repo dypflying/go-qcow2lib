@@ -21,10 +21,12 @@ SOFTWARE.
 
 import (
 	"container/list"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"unsafe"
 )
 
@@ -383,6 +385,8 @@ func initiate_qcow2_state(header *QCowHeader, enableSC bool) *BDRVQcow2State {
 		Discards:            list.New(),
 		get_refcount:        get_refcount,
 		set_refcount:        set_refcount,
+		AioTaskRoutine:      qcow2_aio_routine,
+		Lock:                &sync.Mutex{},
 	}
 	//subcluster related
 	if enableSC {
@@ -447,14 +451,15 @@ func qcow2_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	var curBytes uint32 /* number of bytes in current iteration */
 	var hostOffset uint64
 	var sctype QCow2SubclusterType
+	var isAio bool
 
 	for bytes != 0 {
 
 		curBytes = uint32(bytes)
-		s.Lock.Lock()
+		s.Qlock()
 		err = qcow2_get_host_offset(bs, offset, &curBytes,
 			&hostOffset, &sctype)
-		s.Lock.Unlock()
+		s.Qunlock()
 		if err != nil {
 			goto out
 		}
@@ -464,9 +469,17 @@ func qcow2_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 			(sctype == QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC && bs.backing == nil) {
 			Qemu_Iovec_Memset(qiov, qiovOffset, 0, uint64(curBytes))
 		} else {
-			if err = qcow2_preadv_task(bs, sctype, hostOffset, offset, bytes, qiov, qiovOffset); err != nil {
+			if !isAio && curBytes != uint32(bytes) {
+				isAio = true
+			}
+			if err = qcow2_add_task(bs, isAio, qcow2_preadv_task_entry, sctype,
+				hostOffset, offset, uint64(curBytes),
+				qiov, qiovOffset, nil); err != nil {
 				goto out
 			}
+			/*if err = qcow2_preadv_task(bs, sctype, hostOffset, offset, bytes, qiov, qiovOffset); err != nil {
+				goto out
+			}*/
 		}
 		bytes -= uint64(curBytes)
 		offset += uint64(curBytes)
@@ -485,13 +498,14 @@ func qcow2_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	var curBytes uint64 /* number of sectors in current iteration */
 	var hostOffset uint64
 	var l2meta *QCowL2Meta
+	var isAio bool
 
 	for bytes != 0 {
 
 		l2meta = nil
 		curBytes = bytes
 
-		s.Lock.Lock()
+		s.Qlock()
 		/*
 		* retrieve the hostOffset which is the position in the qcow2 file for writing the buffer
 		* l2meta contains all the meta information regarding the write ops.
@@ -499,9 +513,12 @@ func qcow2_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 		if err = qcow2_alloc_host_offset(bs, offset, &curBytes, &hostOffset, &l2meta); err != nil {
 			goto out_locked
 		}
-		s.Lock.Unlock()
+		s.Qunlock()
 
-		err = qcow2_pwritev_task(bs, hostOffset, offset, curBytes, qiov, qiovOffset, l2meta)
+		if !isAio && curBytes != bytes {
+			isAio = true
+		}
+		err = qcow2_add_task(bs, isAio, qcow2_pwritev_task_entry, 0, hostOffset, offset, curBytes, qiov, qiovOffset, l2meta)
 		l2meta = nil /* l2meta is consumed by qcow2_co_pwritev_task() */
 		if err != nil {
 			goto fail_nometa
@@ -512,12 +529,12 @@ func qcow2_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 		qiovOffset += uint64(curBytes)
 	}
 	err = nil
-	s.Lock.Lock()
+	s.Qlock()
 
 out_locked:
 	//update the l2meta information, and flush it to l2 table as well as l2 cache if success.
 	qcow2_handle_l2meta(bs, &l2meta, false)
-	s.Lock.Unlock()
+	s.Qunlock()
 fail_nometa:
 	return err
 }
@@ -543,7 +560,7 @@ func qcow2_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, flag
 			return ERR_ENOTSUP
 		}
 
-		s.Lock.Lock()
+		s.Qlock()
 		/* We can have new write after previous check */
 		offset -= head
 		bytes = s.SubclusterSize
@@ -554,16 +571,16 @@ func qcow2_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, flag
 				sctype != QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC &&
 				sctype != QCOW2_SUBCLUSTER_ZERO_PLAIN &&
 				sctype != QCOW2_SUBCLUSTER_ZERO_ALLOC) {
-			s.Lock.Unlock()
+			s.Qunlock()
 			return err
 		}
 	} else {
-		s.Lock.Lock()
+		s.Qlock()
 	}
 
 	/* Whatever is left can use real zero subclusters */
 	err = qcow2_subcluster_zeroize(bs, offset, bytes, int(flags))
-	s.Lock.Unlock()
+	s.Qunlock()
 
 	return err
 }
@@ -635,16 +652,16 @@ func qcow2_pwritev_task(bs *BlockDriverState, hostOffset uint64, offset uint64,
 		}
 	}
 
-	s.Lock.Lock()
+	s.Qlock()
 	err = qcow2_handle_l2meta(bs, &l2meta, true)
 	goto out_locked
 
 out_unlocked:
-	s.Lock.Lock()
+	s.Qlock()
 
 out_locked:
 	qcow2_handle_l2meta(bs, &l2meta, false)
-	s.Lock.Unlock()
+	s.Qunlock()
 	return err
 }
 
@@ -762,8 +779,8 @@ func is_zero(bs *BlockDriverState, offset uint64, bytes uint64) bool {
 
 func qcow2_flush_to_os(bs *BlockDriverState) error {
 	s := bs.opaque.(*BDRVQcow2State)
-	s.Lock.Lock()
-	defer s.Lock.Unlock()
+	s.Qlock()
+	defer s.Qunlock()
 	return qcow2_write_caches(bs)
 }
 
@@ -781,10 +798,10 @@ func qcow2_block_status(bs *BlockDriverState, wantZero bool, offset uint64,
 	var status uint64
 	var err error
 
-	s.Lock.Lock()
+	s.Qlock()
 	bytes = uint32(count)
 	err = qcow2_get_host_offset(bs, offset, &bytes, &hostOffset, &scType)
-	s.Lock.Unlock()
+	s.Qunlock()
 	if err != nil {
 		return 0, err
 	}
@@ -833,8 +850,8 @@ func qcow2_pdiscard(bs *BlockDriverState, offset uint64, bytes uint64) error {
 			return ERR_ENOTSUP
 		}
 	}
-	s.Lock.Lock()
-	defer s.Lock.Unlock()
+	s.Qlock()
+	defer s.Qunlock()
 	return qcow2_cluster_discard(bs, offset, bytes, QCOW2_DISCARD_REQUEST, false)
 }
 
@@ -876,4 +893,53 @@ func header_ext_read_external_data_file(bs *BlockDriverState, offset uint64) (st
 		dataFile = string(bytes)
 	}
 	return dataFile, nil
+}
+
+func qcow2_pwritev_task_entry(task *Qcow2Task) error {
+	return qcow2_pwritev_task(task.bs, task.hostOffset, task.offset, task.bytes, task.qiov, task.qiovOffset, task.l2meta)
+}
+
+func qcow2_preadv_task_entry(task *Qcow2Task) error {
+	return qcow2_preadv_task(task.bs, task.subclusterType, task.hostOffset, task.offset, task.bytes, task.qiov, task.qiovOffset)
+}
+
+func qcow2_add_task(bs *BlockDriverState, isAio bool, taskfunc AioTaskFunc, subclusterType QCow2SubclusterType,
+	hostOffset uint64, offset uint64, bytes uint64, qiov *QEMUIOVector, qiovOffset uint64,
+	l2meta *QCowL2Meta) error {
+
+	var err error
+	s := bs.opaque.(*BDRVQcow2State)
+	task := &Qcow2Task{
+		taskFunc:       taskfunc,
+		bs:             bs,
+		subclusterType: subclusterType,
+		qiov:           qiov,
+		hostOffset:     hostOffset,
+		offset:         offset,
+		bytes:          bytes,
+		qiovOffset:     qiovOffset,
+		l2meta:         l2meta,
+		completeCh:     make(chan any, 1),
+		errorCh:        make(chan error, 1),
+	}
+
+	if !isAio {
+		return taskfunc(task)
+	}
+
+	if s.AioTaskList == nil {
+		s.Qlock()
+		if s.AioTaskList == nil {
+			s.AioTaskList = NewSignalList()
+			go s.AioTaskRoutine(context.Background(), s.AioTaskList)
+		}
+		s.Qunlock()
+	}
+
+	s.AioTaskList.Push(task)
+	select {
+	case <-task.completeCh:
+	case err = <-task.errorCh:
+	}
+	return err
 }
