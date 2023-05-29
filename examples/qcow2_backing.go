@@ -73,6 +73,15 @@ func overlay_open() *qcow2.BdrvChild {
 	return root
 }
 
+//write data to the qcow2 file example
+func overlay_write(root *qcow2.BdrvChild) {
+	var err error
+	data := "this is a overlay test"
+	if _, err = qcow2.Blk_Pwrite(root, BASE_OFFSET, ([]byte)(data), uint64(len(data)), 0); err != nil {
+		fmt.Printf("write failed, err: %v\n", err)
+	}
+}
+
 //read data from the qcow2 file example
 func overlay_read(root *qcow2.BdrvChild) {
 	var err error
@@ -88,7 +97,6 @@ func close(root *qcow2.BdrvChild) {
 	qcow2.Blk_Close(root)
 }
 
-/*
 func main() {
 	//create a base file a write something
 	base_create()
@@ -99,7 +107,7 @@ func main() {
 	//create a overlay file from the base and read data
 	overlay_create()
 	root = overlay_open()
+	overlay_write(root)
 	overlay_read(root)
 	close(root)
 }
-*/

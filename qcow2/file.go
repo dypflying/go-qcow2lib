@@ -22,7 +22,6 @@ SOFTWARE.
 import (
 	"context"
 	"os"
-	"runtime/debug"
 	"unsafe"
 )
 
@@ -40,7 +39,6 @@ func pwritev(ctx context.Context, file *os.File, iov []iovec, iovcnt int, offset
 	for i < iovcnt {
 		buffer := unsafe.Slice((*byte)(iov[i].iov_base), iov[i].iov_len)
 		if n, err = file.Write(buffer); err != nil {
-			debug.PrintStack()
 			return ret, err
 		} else if n > 0 {
 			ret += uint64(n)
@@ -77,7 +75,6 @@ func preadv(ctx context.Context, file *os.File, iov []iovec, iovcnt int, offset 
 		buffer := unsafe.Slice((*byte)(iov[i].iov_base), iov[i].iov_len)
 
 		if n, err = file.Read(buffer); err != nil {
-			debug.PrintStack()
 			return ret, err
 		} else if n > 0 {
 			ret += uint64(n)

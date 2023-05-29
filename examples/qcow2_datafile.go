@@ -1,12 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"os"
-
-	"github.com/dypflying/go-qcow2lib/qcow2"
-)
-
+/*
 func main() {
 	var err error
 	var filename = "/tmp/test_datafile.qcow2"
@@ -54,3 +48,4 @@ func main() {
 	//os.Remove(datafile)
 
 }
+*/

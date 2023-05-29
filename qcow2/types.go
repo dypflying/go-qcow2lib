@@ -96,7 +96,7 @@ type BDRVQcow2State struct {
 	QcowVersion           int
 
 	FreeByteOffset uint64 //not used
-	Lock           sync.Mutex
+	Lock           *sync.Mutex
 	Flags          int //not used
 
 	L2SliceSize int
@@ -108,7 +108,6 @@ type BDRVQcow2State struct {
 	SubclustersPerCluster uint64
 	SubclusterSize        uint64
 
-	//QLIST_HEAD(, QCowL2Meta) cluster_allocs;
 	ClusterAllocs *list.List
 	Discards      *list.List
 
@@ -121,6 +120,21 @@ type BDRVQcow2State struct {
 
 	CacheDiscards      bool
 	DiscardPassthrough [QCOW2_DISCARD_MAX]bool
+
+	AioTaskList    *SignalList
+	AioTaskRoutine AioTaskRoutineFunc
+}
+
+func (s *BDRVQcow2State) Qlock() {
+	if s.Lock != nil {
+		s.Lock.Lock()
+	}
+}
+
+func (s *BDRVQcow2State) Qunlock() {
+	if s.Lock != nil {
+		s.Lock.Unlock()
+	}
 }
 
 type QCowL2Meta struct {
