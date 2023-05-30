@@ -51,13 +51,13 @@ func bdrv_flush(bs *BlockDriverState) error {
 
 func bdrv_pread(child *BdrvChild, offset uint64, buf unsafe.Pointer, bytes uint64) error {
 	var qiov QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiov, buf, bytes)
+	qemu_iovec_init_buf(&qiov, buf, bytes)
 	return bdrv_preadv(child, offset, bytes, &qiov, 0)
 }
 
 func bdrv_pwrite(child *BdrvChild, offset uint64, buf unsafe.Pointer, bytes uint64) error {
 	var qiov QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiov, buf, bytes)
+	qemu_iovec_init_buf(&qiov, buf, bytes)
 	return bdrv_pwritev(child, offset, bytes, &qiov, 0)
 }
 
@@ -99,6 +99,7 @@ func bdrv_pwritev_part(child *BdrvChild, offset uint64, bytes uint64,
 	atomic.AddUint64(&bs.InFlight, 1)
 
 	if flags&BDRV_REQ_ZERO_WRITE > 0 {
+		Assert(!padded)
 		err = bdrv_do_zero_pwritev(child, offset, bytes, flags)
 		goto out
 	}
@@ -106,7 +107,9 @@ func bdrv_pwritev_part(child *BdrvChild, offset uint64, bytes uint64,
 	if padded {
 		//if the requests is queued already, won't use this feature
 		//bdrv_make_request_serialising(&req, align)
-		bdrv_padding_rmw_read(child, offset, &pad, false)
+		overlapOffset := offset & uint64(^(align - 1))
+		overlapBytes := round_up(offset+bytes, uint64(align)) - overlapOffset
+		bdrv_padding_rmw_read(child, overlapOffset, overlapBytes, &pad, false)
 	}
 
 	err = bdrv_aligned_pwritev(child, offset, bytes, uint64(align),
@@ -131,7 +134,7 @@ func bdrv_pad_request(bs *BlockDriverState, qiov **QEMUIOVector, qiovOffset *uin
 		return nil
 	}
 
-	if err = Qemu_Iovec_Init_Extended(&pad.LocalQiov, unsafe.Pointer(&pad.Buf[0]), pad.Head,
+	if err = qemu_iovec_init_extended(&pad.LocalQiov, unsafe.Pointer(&pad.Buf[0]), pad.Head,
 		*qiov, *qiovOffset, *bytes, unsafe.Pointer(&pad.Buf[pad.BufLen-pad.Tail]), pad.Tail); err != nil {
 		bdrv_padding_destroy(pad)
 		return err
@@ -161,8 +164,9 @@ func bdrv_do_zero_pwritev(child *BdrvChild, offset uint64, bytes uint64, flags B
 
 	if padding {
 		//bdrv_make_request_serialising(req, align);
-
-		bdrv_padding_rmw_read(child, offset, &pad, true)
+		overlapOffset := offset & ^(align - 1)
+		overlapBytes := round_up(offset+bytes, align) - overlapOffset
+		bdrv_padding_rmw_read(child, overlapOffset, overlapBytes, &pad, true)
 
 		if pad.Head > 0 || pad.MergeReads {
 			alignedOffset := offset & ^(align - 1)
@@ -173,7 +177,7 @@ func bdrv_do_zero_pwritev(child *BdrvChild, offset uint64, bytes uint64, flags B
 				writeBytes = align
 			}
 
-			Qemu_Iovec_Init_Buf(&localQiov, unsafe.Pointer(&pad.Buf[0]), writeBytes)
+			qemu_iovec_init_buf(&localQiov, unsafe.Pointer(&pad.Buf[0]), writeBytes)
 			if err = bdrv_aligned_pwritev(child, alignedOffset, writeBytes,
 				align, &localQiov, 0, flags & ^BDRV_REQ_ZERO_WRITE); err != nil || pad.MergeReads {
 				/* Error or all work is done */
@@ -184,6 +188,7 @@ func bdrv_do_zero_pwritev(child *BdrvChild, offset uint64, bytes uint64, flags B
 		}
 	}
 
+	Assert(bytes == 0 || (offset&(align-1)) == 0)
 	if bytes >= align {
 		/* Write the aligned part in the middle. */
 		alignedBytes := bytes & ^(align - 1)
@@ -194,9 +199,10 @@ func bdrv_do_zero_pwritev(child *BdrvChild, offset uint64, bytes uint64, flags B
 		bytes -= alignedBytes
 		offset += alignedBytes
 	}
-
+	Assert(bytes == 0 || (offset&(align-1)) == 0)
 	if bytes > 0 {
-		Qemu_Iovec_Init_Buf(&localQiov, unsafe.Pointer(&pad.TailBuf[0]), align)
+		Assert(align == pad.Tail+bytes)
+		qemu_iovec_init_buf(&localQiov, unsafe.Pointer(&pad.TailBuf[0]), align)
 		err = bdrv_aligned_pwritev(child, offset, align, align,
 			&localQiov, 0, flags & ^BDRV_REQ_ZERO_WRITE)
 	}
@@ -206,7 +212,7 @@ out:
 	return err
 }
 
-func bdrv_padding_rmw_read(child *BdrvChild, offset uint64, pad *BdrvRequestPadding, zeroMiddle bool) error {
+func bdrv_padding_rmw_read(child *BdrvChild, overlapOffset uint64, overlapBytes uint64, pad *BdrvRequestPadding, zeroMiddle bool) error {
 
 	var localQiov QEMUIOVector
 	bs := child.bs
@@ -222,9 +228,9 @@ func bdrv_padding_rmw_read(child *BdrvChild, offset uint64, pad *BdrvRequestPadd
 			bytes = uint64(align)
 		}
 
-		Qemu_Iovec_Init_Buf(&localQiov, unsafe.Pointer(&pad.Buf[0]), bytes)
+		qemu_iovec_init_buf(&localQiov, unsafe.Pointer(&pad.Buf[0]), bytes)
 
-		if err = bdrv_aligned_preadv(child, offset, bytes,
+		if err = bdrv_aligned_preadv(child, overlapOffset, bytes,
 			align, &localQiov, 0, 0); err != nil {
 			return err
 		}
@@ -236,9 +242,9 @@ func bdrv_padding_rmw_read(child *BdrvChild, offset uint64, pad *BdrvRequestPadd
 
 	if pad.Tail > 0 {
 
-		Qemu_Iovec_Init_Buf(&localQiov, unsafe.Pointer(&pad.TailBuf[0]), uint64(align))
+		qemu_iovec_init_buf(&localQiov, unsafe.Pointer(&pad.TailBuf[0]), uint64(align))
 
-		if err = bdrv_aligned_preadv(child, offset+bytes-uint64(align),
+		if err = bdrv_aligned_preadv(child, overlapOffset+overlapBytes-uint64(align),
 			uint64(align), align, &localQiov, 0, 0); err != nil {
 			return err
 		}
@@ -256,8 +262,10 @@ func bdrv_aligned_pwritev(child *BdrvChild, offset uint64, bytes uint64,
 
 	bs := child.bs
 	var err error
-
 	bytesRemaining := bytes
+
+	Assert((offset & (align - 1)) == 0)
+	Assert((bytes & (align - 1)) == 0)
 	maxTransfer := uint64(align_down(bs.MaxTransfer, uint32(align))) //64MiB
 
 	if flags&BDRV_REQ_ZERO_WRITE > 0 {
@@ -271,7 +279,7 @@ func bdrv_aligned_pwritev(child *BdrvChild, offset uint64, bytes uint64,
 		for bytesRemaining > 0 {
 			num := min(bytesRemaining, maxTransfer)
 			localFlags := flags
-
+			Assert(num > 0)
 			if num < bytesRemaining && (flags&BDRV_REQ_FUA > 0 && bs.SupportedWriteFlags&BDRV_REQ_FUA == 0) {
 				/* If FUA is going to be emulated by flush, we only
 				 * need to flush on the last iteration */
@@ -303,10 +311,14 @@ func bdrv_aligned_preadv(child *BdrvChild, offset uint64,
 	var err error
 	var bytesRemaining uint64 = bytes
 	var maxTransfer uint64
-
 	var ret uint64
 
+	//TODO1: not aligned when writting zeroes
+	Assert((offset & uint64(align-1)) == 0)
+	Assert((bytes & uint64(align-1)) == 0)
+	Assert((bs.OpenFlags & BDRV_O_NO_IO) == 0)
 	maxTransfer = align_down(uint64(bs.MaxTransfer), uint64(align))
+	Assert((int(flags) & ^(BDRV_REQ_COPY_ON_READ | BDRV_REQ_PREFETCH)) == 0)
 
 	if flags&BDRV_REQ_COPY_ON_READ > 0 {
 		var pnum uint64
@@ -332,6 +344,7 @@ func bdrv_aligned_preadv(child *BdrvChild, offset uint64,
 		goto out
 	}
 
+	Assert((uint64(flags) & ^bs.SupportedReadFlags) == 0)
 	maxBytes = round_up(max(0, totalBytes-offset), uint64(align))
 	if bytes <= maxBytes && bytes <= maxTransfer {
 		err = bdrv_driver_preadv(bs, offset, bytes, qiov, qiovOffset, flags)
@@ -343,13 +356,13 @@ func bdrv_aligned_preadv(child *BdrvChild, offset uint64,
 
 		if maxBytes > 0 {
 			num = min(bytesRemaining, maxBytes, maxTransfer)
-
+			Assert(num > 0)
 			err = bdrv_driver_preadv(bs, offset+bytes-bytesRemaining,
 				num, qiov, qiovOffset+bytes-bytesRemaining, flags)
 			maxBytes -= num
 		} else {
 			num = bytesRemaining
-			Qemu_Iovec_Memset(qiov, qiovOffset+bytes-bytesRemaining, 0, bytesRemaining)
+			qemu_iovec_memset(qiov, qiovOffset+bytes-bytesRemaining, 0, bytesRemaining)
 		}
 		if err != nil {
 			goto out
@@ -363,7 +376,7 @@ out:
 
 func bdrv_padding_destroy(pad *BdrvRequestPadding) {
 	if pad.Buf != nil {
-		Qemu_Iovec_Destroy(&pad.LocalQiov)
+		qemu_iovec_destroy(&pad.LocalQiov)
 	}
 	memset(unsafe.Pointer(pad), int(unsafe.Sizeof(*pad)))
 }
@@ -385,6 +398,7 @@ func bdrv_init_padding(bs *BlockDriverState, offset uint64, bytes uint64, pad *B
 		return false
 	}
 
+	Assert(bytes > 0)
 	sum = pad.Head + bytes + pad.Tail
 	if sum > align && pad.Head > 0 && pad.Tail > 0 {
 		pad.BufLen = 2 * align
@@ -428,6 +442,7 @@ func bdrv_do_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, fl
 		if head > 0 {
 			num = min(bytes, maxTransfer, alignment-head)
 			head = (head + num) % alignment
+			Assert(num < maxWriteZeroes)
 		} else if tail > 0 && num > alignment {
 			/* Shorten the request to the last aligned sector.  */
 			num -= tail
@@ -447,6 +462,8 @@ func bdrv_do_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, fl
 				bs.SupportedZeroFlags&BDRV_REQ_FUA == 0 {
 				needFlush = true
 			}
+		} else {
+			Assert(bs.SupportedZeroFlags == 0)
 		}
 
 		if err == ERR_ENOTSUP && flags&BDRV_REQ_NO_FALLBACK == 0 {
@@ -463,7 +480,7 @@ func bdrv_do_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, fl
 				p := make([]byte, num)
 				buf = unsafe.Pointer(&p[0])
 			}
-			Qemu_Iovec_Init_Buf(&qiov, buf, num)
+			qemu_iovec_init_buf(&qiov, buf, num)
 
 			err = bdrv_driver_pwritev(bs, offset, num, &qiov, 0, writeFlags)
 			if num < maxTransfer {
@@ -491,6 +508,9 @@ func bdrv_driver_pwritev(bs *BlockDriverState, offset uint64, bytes uint64,
 
 	drv := bs.Drv
 
+	Assert((flags & ^BDRV_REQ_MASK) == 0)
+	Assert((flags & BDRV_REQ_NO_FALLBACK) == 0)
+
 	if drv == nil {
 		return Err_NoDriverFound
 	}
@@ -501,7 +521,7 @@ func bdrv_driver_pwritev(bs *BlockDriverState, offset uint64, bytes uint64,
 	}
 
 	if qiovOffset > 0 || bytes != qiov.size {
-		Qemu_Iovec_Init_Slice(&localQiov, qiov, qiovOffset, bytes)
+		qemu_iovec_init_slice(&localQiov, qiov, qiovOffset, bytes)
 		qiov = &localQiov
 	}
 
@@ -519,7 +539,7 @@ out:
 		err = bdrv_flush(bs)
 	}
 	if qiov == &localQiov {
-		Qemu_Iovec_Destroy(&localQiov)
+		qemu_iovec_destroy(&localQiov)
 	}
 	return err
 }
@@ -548,13 +568,6 @@ func bdrv_preadv_part(child *BdrvChild, offset uint64, bytes uint64,
 	}
 
 	atomic.AddUint64(&bs.InFlight, 1)
-
-	/* Don't do copy-on-read if we read data before write operation */
-	/*
-	   if (qatomic_read(&bs->copy_on_read)) {
-	       flags |= BDRV_REQ_COPY_ON_READ;
-	   }
-	*/
 
 	if err = bdrv_pad_request(bs, &qiov, &qiovOffset, &offset, &bytes, &pad, nil); err != nil {
 		goto fail
@@ -600,12 +613,14 @@ func bdrv_driver_preadv(bs *BlockDriverState, offset uint64, bytes uint64,
 	if drv == nil {
 		return Err_NoDriverFound
 	}
+	Assert((flags & ^BDRV_REQ_MASK) == 0)
+	Assert((flags & BDRV_REQ_NO_FALLBACK) == 0)
 
 	if drv.bdrv_preadv_part != nil {
 		return drv.bdrv_preadv_part(bs, offset, bytes, qiov, qiovOffset, flags)
 	}
 	if qiovOffset > 0 || bytes != qiov.size {
-		Qemu_Iovec_Init_Slice(&localQiov, qiov, qiovOffset, bytes)
+		qemu_iovec_init_slice(&localQiov, qiov, qiovOffset, bytes)
 		qiov = &localQiov
 	}
 	if drv.bdrv_preadv != nil {
@@ -615,7 +630,7 @@ func bdrv_driver_preadv(bs *BlockDriverState, offset uint64, bytes uint64,
 	Assert(false)
 out:
 	if qiov == &localQiov {
-		Qemu_Iovec_Destroy(&localQiov)
+		qemu_iovec_destroy(&localQiov)
 	}
 	return err
 }
@@ -654,8 +669,10 @@ func bdrv_do_copy_on_readv(child *BdrvChild, offset uint64, bytes uint64,
 
 			/* Stop at EOF if the image ends in the middle of the cluster */
 			if ret == 0 && pnum == 0 {
+				Assert(progress >= bytes)
 				break
 			}
+			Assert(skipBytes < pnum)
 		}
 
 		if ret <= 0 {
@@ -670,7 +687,7 @@ func bdrv_do_copy_on_readv(child *BdrvChild, offset uint64, bytes uint64,
 				bounceBuffer = make([]byte, bounce_buffer_len)
 			}
 
-			Qemu_Iovec_Init_Buf(&localQiov, unsafe.Pointer(&bounceBuffer[0]), pnum)
+			qemu_iovec_init_buf(&localQiov, unsafe.Pointer(&bounceBuffer[0]), pnum)
 
 			if err = bdrv_driver_preadv(bs, clusterOffset, pnum, &localQiov, 0, 0); err != nil {
 				goto err
@@ -688,7 +705,7 @@ func bdrv_do_copy_on_readv(child *BdrvChild, offset uint64, bytes uint64,
 			}
 
 			if flags&BDRV_REQ_PREFETCH == 0 {
-				Qemu_Iovec_From_Buf(qiov, qiovOffset+progress,
+				qemu_iovec_to_buf(qiov, qiovOffset+progress,
 					unsafe.Pointer(&bounceBuffer[skipBytes]), min(pnum-skipBytes, bytes-progress))
 			}
 		} else if flags&BDRV_REQ_PREFETCH == 0 {
@@ -725,6 +742,7 @@ func bdrv_common_block_status_above(bs *BlockDriverState, base *BlockDriverState
 	var eof uint64 = 0
 	var dummy int
 
+	Assert(!includeBase || base != nil)
 	if depth == nil {
 		depth = &dummy
 	}
@@ -743,6 +761,7 @@ func bdrv_common_block_status_above(bs *BlockDriverState, base *BlockDriverState
 	if ret&BDRV_BLOCK_EOF > 0 {
 		eof = offset + *pnum
 	}
+	Assert(*pnum <= bytes)
 	bytes = *pnum
 
 	for p = bdrv_filter_or_cow_bs(bs); includeBase || p != base; p = bdrv_filter_or_cow_bs(p) {
@@ -752,6 +771,7 @@ func bdrv_common_block_status_above(bs *BlockDriverState, base *BlockDriverState
 			return 0, err
 		}
 		if *pnum == 0 {
+			Assert(ret&BDRV_BLOCK_EOF > 0)
 			*pnum = bytes
 			if file != nil {
 				*file = p
@@ -764,8 +784,10 @@ func bdrv_common_block_status_above(bs *BlockDriverState, base *BlockDriverState
 			break
 		}
 		if p == base {
+			Assert(includeBase)
 			break
 		}
+		Assert(*pnum <= bytes)
 		bytes = *pnum
 
 	}
@@ -808,6 +830,7 @@ func bdrv_block_status(bs *BlockDriverState, wantZero bool, offset uint64, bytes
 	var aligned_offset, aligned_bytes uint64
 	var align uint32
 
+	Assert(pnum != nil)
 	*pnum = 0
 	if total_size, err = bdrv_getlength(bs); err != nil {
 		goto early_out
@@ -834,6 +857,7 @@ func bdrv_block_status(bs *BlockDriverState, wantZero bool, offset uint64, bytes
 	aligned_offset = align_down(offset, uint64(align))
 	aligned_bytes = round_up(offset+bytes, uint64(align)) - aligned_offset
 
+	Assert(bs.Drv != nil)
 	if bs.Drv.bdrv_block_status != nil {
 		if ret, err = bs.Drv.bdrv_block_status(bs, wantZero, aligned_offset,
 			aligned_bytes, pnum, &local_map,
@@ -1124,8 +1148,6 @@ func bdrv_pdiscard(child *BdrvChild, offset uint64, bytes uint64) error {
 	}
 	err = nil
 out:
-	// bdrv_co_write_req_finish(child, req.offset, req.bytes, &req, ret);
 	atomic.AddUint64(&bs.InFlight, ^uint64(0))
-
 	return err
 }

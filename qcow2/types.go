@@ -111,8 +111,6 @@ type BDRVQcow2State struct {
 	ClusterAllocs *list.List
 	Discards      *list.List
 
-	IncompatibleFeatures uint64
-
 	get_refcount Get_Refcount_Func
 	set_refcount Set_Refcount_Func
 
@@ -123,6 +121,11 @@ type BDRVQcow2State struct {
 
 	AioTaskList    *SignalList
 	AioTaskRoutine AioTaskRoutineFunc
+
+	/* The following fields are only valid for version >= 3 */
+	IncompatibleFeatures uint64
+	CompatibleFeatures   uint64
+	AutoclearFeatures    uint64
 }
 
 func (s *BDRVQcow2State) Qlock() {
@@ -421,6 +424,11 @@ type Qcow2DiscardRegion struct {
 func has_data_file(bs *BlockDriverState) bool {
 	s := bs.opaque.(*BDRVQcow2State)
 	return s.DataFile != bs.current
+}
+
+func data_file_is_raw(bs *BlockDriverState) bool {
+	s := bs.opaque.(*BDRVQcow2State)
+	return s.AutoclearFeatures&QCOW2_AUTOCLEAR_DATA_FILE_RAW > 0
 }
 
 type QCowExtension struct {

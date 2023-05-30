@@ -49,6 +49,7 @@ func qcow2_cache_get_table_addr(c *Qcow2Cache, tableIndex int) unsafe.Pointer {
 func qcow2_cache_get_table_idx(c *Qcow2Cache, table unsafe.Pointer) int {
 	tableOffset := int(uintptr(table) - uintptr(unsafe.Pointer(&c.tableArray[0])))
 	tableIdx := tableOffset / c.tableSize
+	Assert(tableIdx >= 0 && tableIdx < c.size && tableOffset%c.tableSize == 0)
 	return tableIdx
 }
 
@@ -100,6 +101,13 @@ func qcow2_cache_clean_unused(c *Qcow2Cache) {
 }
 
 func qcow2_cache_create(bs *BlockDriverState, numTables uint32, tableSize uint32) *Qcow2Cache {
+
+	if bs != nil {
+		s := bs.opaque.(*BDRVQcow2State)
+		Assert(numTables > 0)
+		Assert(tableSize >= (1 << DEFAULT_CLUSTER_BITS))
+		Assert(tableSize <= s.ClusterSize)
+	}
 
 	c := &Qcow2Cache{
 		size:       int(numTables),
@@ -205,6 +213,7 @@ func qcow2_cache_empty(bs *BlockDriverState, c *Qcow2Cache) error {
 		return err
 	}
 	for i := int(0); i < c.size; i++ {
+		Assert(c.entries[i].ref == 0)
 		c.entries[i].offset = 0
 		c.entries[i].lruCounter = 0
 	}
@@ -221,6 +230,7 @@ func qcow2_cache_do_get(bs *BlockDriverState, c *Qcow2Cache, offset uint64, read
 	minLruCounter := uint64(math.MaxUint64)
 	minLruIndex := int(-1)
 
+	Assert(offset != 0)
 	// Check if the table is already cached
 	lookupIndex = (int(offset) / c.tableSize * 4) % c.size
 	i = lookupIndex
@@ -285,6 +295,7 @@ func qcow2_cache_put(c *Qcow2Cache, table unsafe.Pointer) {
 
 func qcow2_cache_entry_mark_dirty(c *Qcow2Cache, table unsafe.Pointer) {
 	i := qcow2_cache_get_table_idx(c, table)
+	Assert(c.entries[i].offset != 0)
 	c.entries[i].dirty = true
 }
 

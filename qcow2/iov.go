@@ -32,14 +32,14 @@ func New_QEMUIOVector() *QEMUIOVector {
 	return &QEMUIOVector{}
 }
 
-func Qemu_Iovec_Init(qiov *QEMUIOVector, allocHint int) {
+func qemu_iovec_init(qiov *QEMUIOVector, allocHint int) {
 	qiov.iov = make([]iovec, allocHint)
 	qiov.niov = 0
 	qiov.nalloc = allocHint
 	qiov.size = 0
 }
 
-func Qemu_Iovec_Add(qiov *QEMUIOVector, base unsafe.Pointer, len uint64) {
+func qemu_iovec_add(qiov *QEMUIOVector, base unsafe.Pointer, len uint64) {
 	if qiov.niov == qiov.nalloc {
 		newNalloc := 2*qiov.nalloc + 1
 		newIov := make([]iovec, newNalloc)
@@ -55,7 +55,7 @@ func Qemu_Iovec_Add(qiov *QEMUIOVector, base unsafe.Pointer, len uint64) {
 	qiov.niov++
 }
 
-func Qemu_Iovec_Init_Buf(qiov *QEMUIOVector, buf unsafe.Pointer, len uint64) {
+func qemu_iovec_init_buf(qiov *QEMUIOVector, buf unsafe.Pointer, len uint64) {
 	qiov.niov = 1
 	qiov.nalloc = -1
 	qiov.size = len
@@ -67,7 +67,7 @@ func Qemu_Iovec_Init_Buf(qiov *QEMUIOVector, buf unsafe.Pointer, len uint64) {
 	qiov.iov[0] = qiov.local_iov
 }
 
-func Iov_From_Buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
+func iov_from_buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
 	var done uint64 = 0
 	var i uint64 = 0
 	for i = 0; (offset > 0 || done < bytes) && i < iovCnt; i++ {
@@ -84,7 +84,7 @@ func Iov_From_Buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer,
 	return done
 }
 
-func Iov_To_Buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
+func iov_to_buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
 	var done uint64 = 0
 	var i uint64 = 0
 	for i = 0; (offset > 0 || done < bytes) && i < iovCnt; i++ {
@@ -101,12 +101,12 @@ func Iov_To_Buf(iov []iovec, iovCnt uint64, offset uint64, buf unsafe.Pointer, b
 	return done
 }
 
-func Qiov_Slice(qiov *QEMUIOVector, offset uint64, length uint64, head *uint64, tail *uint64, niov *int) []iovec {
+func qiov_slice(qiov *QEMUIOVector, offset uint64, length uint64, head *uint64, tail *uint64, niov *int) []iovec {
 
 	var iov, endIov []iovec
 
-	iov = Iov_Skip_Offset(qiov.iov, offset, head)
-	endIov = Iov_Skip_Offset(iov, *head+length, tail)
+	iov = iov_skip_offset(qiov.iov, offset, head)
+	endIov = iov_skip_offset(iov, *head+length, tail)
 
 	if *tail > 0 {
 		*tail = endIov[0].iov_len - *tail
@@ -117,7 +117,7 @@ func Qiov_Slice(qiov *QEMUIOVector, offset uint64, length uint64, head *uint64, 
 	return iov
 }
 
-func Iov_Skip_Offset(iov []iovec, offset uint64, remainingOffset *uint64) []iovec {
+func iov_skip_offset(iov []iovec, offset uint64, remainingOffset *uint64) []iovec {
 	idx := 0
 	for offset > 0 && offset >= iov[idx].iov_len {
 		offset -= iov[idx].iov_len
@@ -128,11 +128,11 @@ func Iov_Skip_Offset(iov []iovec, offset uint64, remainingOffset *uint64) []iove
 	return iov[idx:]
 }
 
-func Qemu_Iovec_Destroy(qiov *QEMUIOVector) {
+func qemu_iovec_destroy(qiov *QEMUIOVector) {
 	memset(unsafe.Pointer(qiov), int(unsafe.Sizeof(*qiov)))
 }
 
-func Qemu_Iovec_Init_Extended(qiov *QEMUIOVector, headBuf unsafe.Pointer, headLen uint64,
+func qemu_iovec_init_extended(qiov *QEMUIOVector, headBuf unsafe.Pointer, headLen uint64,
 	midQiov *QEMUIOVector, midOffset uint64, midLen uint64, tailBuf unsafe.Pointer, tailLen uint64) error {
 
 	var midHead, midTail uint64
@@ -146,7 +146,7 @@ func Qemu_Iovec_Init_Extended(qiov *QEMUIOVector, headBuf unsafe.Pointer, headLe
 	}
 
 	if midLen > 0 {
-		midIov = Qiov_Slice(midQiov, midOffset, midLen,
+		midIov = qiov_slice(midQiov, midOffset, midLen,
 			&midHead, &midTail, &midNiov)
 	}
 
@@ -163,7 +163,7 @@ func Qemu_Iovec_Init_Extended(qiov *QEMUIOVector, headBuf unsafe.Pointer, headLe
 	}
 
 	if totalNiov == 1 {
-		Qemu_Iovec_Init_Buf(qiov, nil, 0)
+		qemu_iovec_init_buf(qiov, nil, 0)
 		p = qiov.iov[0:]
 	} else {
 		qiov.nalloc = totalNiov
@@ -195,27 +195,27 @@ func Qemu_Iovec_Init_Extended(qiov *QEMUIOVector, headBuf unsafe.Pointer, headLe
 	return nil
 }
 
-func Qemu_Iovec_Init_Slice(qiov *QEMUIOVector /* out */, source *QEMUIOVector, offset uint64, length uint64) error {
-	return Qemu_Iovec_Init_Extended(qiov, nil, 0, source, offset, length, nil, 0)
+func qemu_iovec_init_slice(qiov *QEMUIOVector /* out */, source *QEMUIOVector, offset uint64, length uint64) error {
+	return qemu_iovec_init_extended(qiov, nil, 0, source, offset, length, nil, 0)
 }
 
-func Qemu_Iovec_Subvec_Niov(qiov *QEMUIOVector, offset uint64, length uint64) int {
+func qemu_iovec_subvec_niov(qiov *QEMUIOVector, offset uint64, length uint64) int {
 	var head, tail uint64
 	var niov int
-	Qiov_Slice(qiov, offset, length, &head, &tail, &niov)
+	qiov_slice(qiov, offset, length, &head, &tail, &niov)
 	return niov
 }
 
-func Qemu_Iovec_Reset(qiov *QEMUIOVector) {
+func qemu_iovec_reset(qiov *QEMUIOVector) {
 	qiov.niov = 0
 	qiov.size = 0
 }
 
-func Qemu_Iovec_Concat(dst *QEMUIOVector, src *QEMUIOVector, soffset uint64, sbytes uint64) {
-	Qemu_Iovec_Concat_Iov(dst, src.iov, uint64(src.niov), soffset, sbytes)
+func qemu_iovec_concat(dst *QEMUIOVector, src *QEMUIOVector, soffset uint64, sbytes uint64) {
+	qemu_iovec_concat_iov(dst, src.iov, uint64(src.niov), soffset, sbytes)
 }
 
-func Qemu_Iovec_Concat_Iov(dst *QEMUIOVector, srcIov []iovec,
+func qemu_iovec_concat_iov(dst *QEMUIOVector, srcIov []iovec,
 	srcCnt uint64, soffset uint64, sbytes uint64) uint64 {
 	var i uint64
 	var done uint64
@@ -226,7 +226,7 @@ func Qemu_Iovec_Concat_Iov(dst *QEMUIOVector, srcIov []iovec,
 	for i = 0; done < sbytes && i < srcCnt; i++ {
 		if soffset < srcIov[i].iov_len {
 			var len uint64 = min(srcIov[i].iov_len-soffset, sbytes-done)
-			Qemu_Iovec_Add(dst, unsafe.Pointer(uintptr(srcIov[i].iov_base)+uintptr(soffset)), len)
+			qemu_iovec_add(dst, unsafe.Pointer(uintptr(srcIov[i].iov_base)+uintptr(soffset)), len)
 			done += len
 			soffset = 0
 		} else {
@@ -237,11 +237,11 @@ func Qemu_Iovec_Concat_Iov(dst *QEMUIOVector, srcIov []iovec,
 	return done
 }
 
-func Qemu_Iovec_Memset(qiov *QEMUIOVector, offset uint64, fillc int, bytes uint64) uint64 {
-	return Iov_Memset(qiov.iov, uint64(qiov.niov), offset, fillc, bytes)
+func qemu_iovec_memset(qiov *QEMUIOVector, offset uint64, fillc int, bytes uint64) uint64 {
+	return iov_memset(qiov.iov, uint64(qiov.niov), offset, fillc, bytes)
 }
 
-func Iov_Memset(iov []iovec, iovCnt uint64, offset uint64, fillc int, bytes uint64) uint64 {
+func iov_memset(iov []iovec, iovCnt uint64, offset uint64, fillc int, bytes uint64) uint64 {
 	var done uint64
 	var i uint64
 
@@ -260,10 +260,10 @@ func Iov_Memset(iov []iovec, iovCnt uint64, offset uint64, fillc int, bytes uint
 	return done
 }
 
-func Qemu_Iovec_To_Buf(qiov *QEMUIOVector, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
-	return Iov_To_Buf(qiov.iov, uint64(qiov.niov), offset, buf, bytes)
+func qemu_iovec_to_buf(qiov *QEMUIOVector, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
+	return iov_to_buf(qiov.iov, uint64(qiov.niov), offset, buf, bytes)
 }
 
-func Qemu_Iovec_From_Buf(qiov *QEMUIOVector, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
-	return Iov_From_Buf(qiov.iov, uint64(qiov.niov), offset, buf, bytes)
+func qemu_iovec_from_buf(qiov *QEMUIOVector, offset uint64, buf unsafe.Pointer, bytes uint64) uint64 {
+	return iov_from_buf(qiov.iov, uint64(qiov.niov), offset, buf, bytes)
 }

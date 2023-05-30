@@ -144,6 +144,7 @@ func alloc_refcount_block(bs *BlockDriverState, clusterIndex uint64) (unsafe.Poi
 	} else if newBlockOffset == 0 {
 		return nil, Err_RefcountAlloc
 	}
+	Assert((newBlockOffset & REFT_OFFSET_MASK) == newBlockOffset)
 
 	if in_same_refcount_block(s, uint64(newBlockOffset), clusterIndex<<uint64(s.ClusterBits)) {
 		/* Zero the new refcount block before updating it */
@@ -174,8 +175,6 @@ func alloc_refcount_block(bs *BlockDriverState, clusterIndex uint64) (unsafe.Poi
 	if err = qcow2_cache_flush(bs, s.RefcountBlockCache); err != nil {
 		goto fail
 	}
-
-	qcow2_cache_put(s.RefcountBlockCache, refcountBlock)
 
 	if refcountTableIndex < uint64(s.RefcountTableSize) {
 		data64 = cpu_to_be64(newBlockOffset)
@@ -228,6 +227,8 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 	var newTable []uint64
 	var oldTableOffset, oldTableSize uint64
 
+	Assert((startOffset % uint64(s.ClusterSize)) == 0)
+
 	qcow2_refcount_metadata_size(startOffset/uint64(s.ClusterSize)+additionalClusters,
 		uint64(s.ClusterSize), QCOW2_REFCOUNT_ORDER,
 		!exactSize, &totalRefblockCount_u64)
@@ -254,6 +255,7 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 		return 0, ERR_EFBIG
 	}
 
+	Assert(tableSize > 0)
 	newTable = make([]uint64, tableSize)
 
 	/* Fill the new refcount table */
@@ -266,6 +268,7 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 	}
 
 	if newRefblockOffset > 0 {
+		Assert(newRefblockOffset < totalRefblockCount)
 		newTable[newRefblockIndex] = newRefblockOffset
 	}
 
@@ -325,6 +328,8 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 		qcow2_cache_put(s.RefcountBlockCache, refblockData)
 	} // end for
 
+	Assert(blockOffset == tableOffset)
+
 	if err = qcow2_cache_flush(bs, s.RefcountBlockCache); err != nil {
 		goto fail
 	}
@@ -343,6 +348,9 @@ func qcow2_refcount_area(bs *BlockDriverState, startOffset uint64, additionalClu
 
 	//TODO2
 	//update the header for the new refcount table
+	//since one refcount table can hold up to 16TiB data, and the qcow2 is limited to 4TiB, so never reach here
+	//just reserved for sometime in future that we unlimit it.
+	Assert(false)
 
 	/* And switch it in memory */
 	oldTableOffset = uint64(s.RefcountTableOffset)
@@ -513,6 +521,8 @@ func qcow2_alloc_clusters_at(bs *BlockDriverState, offset uint64, nbClusters int
 	var clusterIndex, i uint64
 	var refcount uint16
 	var err error
+
+	Assert(nbClusters >= 0)
 	if nbClusters == 0 {
 		return 0, nil
 	}
@@ -588,7 +598,7 @@ func update_refcount_discard(bs *BlockDriverState,
 		newStart := min(offset, d.offset)
 		newEnd := max(offset+length, d.offset+d.bytes)
 		if newEnd-newStart <= length+d.bytes {
-
+			Assert(d.bytes+length == newEnd-newStart)
 			d.offset = newStart
 			d.bytes = newEnd - newStart
 			goto found

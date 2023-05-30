@@ -1,6 +1,7 @@
 package qcow2
 
 import (
+	"math"
 	"unsafe"
 )
 
@@ -68,6 +69,9 @@ func l2_allocate(bs *BlockDriverState, l1Index uint32) error {
 	if l2Offset, err = qcow2_alloc_clusters(bs, uint64(s.L2Size)*l2_entry_size(s)); err != nil {
 		goto fail
 	}
+
+	Assert(l2Offset&L1E_OFFSET_MASK == l2Offset)
+
 	/* If we're allocating the table at offset 0 then something is wrong */
 	if l2Offset == 0 {
 		err = Err_L2Alloc
@@ -138,6 +142,8 @@ func get_cluster_table(bs *BlockDriverState, offset uint64) (unsafe.Pointer, uin
 	if uint32(l1Index) >= s.L1Size {
 		return nil, 0, Err_IdxOutOfRange
 	}
+	Assert(l1Index < uint64(s.L1Size))
+
 	l2Offset = s.L1Table[l1Index] & L1E_OFFSET_MASK
 	if offset_into_cluster(s, l2Offset) > 0 {
 		return nil, 0, ERR_EIO
@@ -156,6 +162,7 @@ func get_cluster_table(bs *BlockDriverState, offset uint64) (unsafe.Pointer, uin
 
 		/* Get the offset of the newly-allocated l2 table */
 		l2Offset = s.L1Table[l1Index] & L1E_OFFSET_MASK
+		Assert(offset_into_cluster(s, l2Offset) == 0)
 	}
 
 	/* load the l2 slice in memory */
@@ -260,11 +267,10 @@ func qcow2_get_host_offset(bs *BlockDriverState, offset uint64, bytes *uint32,
 	bytesAvailable = (sc + scIndex) << s.SubclusterBits
 
 out:
-	//fmt.Printf("bytesAvailable=%d, bytesNeeded=%d, offsetInCluster=%d, tmpType=%d,sc=%d, scIndex=%d,l2Entry=%d,nbClusters=%d\n",
-	//	bytesAvailable, bytesNeeded, offsetInCluster, tmpType, sc, scIndex, l2Entry, nbClusters)
 	if bytesAvailable > bytesNeeded {
 		bytesAvailable = bytesNeeded
 	}
+	Assert(bytesAvailable-uint64(offsetInCluster) <= math.MaxUint)
 	*bytes = uint32(bytesAvailable) - offsetInCluster
 	*scType = tmpType
 	return nil
@@ -282,6 +288,8 @@ func qcow2_alloc_cluster_link_l2(bs *BlockDriverState, m *QCowL2Meta) error {
 	var oldCluster []uint64
 	clusterOffset := m.AllocOffset
 
+	Assert(m.NbClusters > 0)
+
 	oldCluster = make([]uint64, m.NbClusters)
 
 	//copy content of unmodified sectors
@@ -298,6 +306,9 @@ func qcow2_alloc_cluster_link_l2(bs *BlockDriverState, m *QCowL2Meta) error {
 	}
 	qcow2_cache_entry_mark_dirty(s.L2TableCache, l2Slice)
 
+	Assert(int(l2Index)+m.NbClusters <= s.L2SliceSize)
+	Assert(m.CowEnd.Offset+m.CowEnd.NbBytes <=
+		uint64(m.NbClusters)<<s.ClusterBits)
 	for i = 0; i < uint32(m.NbClusters); i++ {
 
 		offset := clusterOffset + uint64(i<<s.ClusterBits)
@@ -305,6 +316,7 @@ func qcow2_alloc_cluster_link_l2(bs *BlockDriverState, m *QCowL2Meta) error {
 			oldCluster[j] = get_l2_entry(s, l2Slice, l2Index+i)
 			j++
 		}
+		Assert((offset & L2E_OFFSET_MASK) == offset)
 		set_l2_entry(s, l2Slice, l2Index+i, offset|QCOW_OFLAG_COPIED)
 
 		/* Update bitmap with the subclusters that were just written */
@@ -317,6 +329,7 @@ func qcow2_alloc_cluster_link_l2(bs *BlockDriverState, m *QCowL2Meta) error {
 			/* Narrow written_from and written_to down to the current cluster */
 			writtenFrom = max(writtenFrom, uint64(i<<s.ClusterBits))
 			writtenTo = min(writtenTo, uint64((i+1)<<s.ClusterBits))
+			Assert(writtenFrom < writtenTo)
 			firstSc = uint32(offset_to_sc_index(s, writtenFrom))
 			lastSc = uint32(offset_to_sc_index(s, writtenTo-1))
 			l2Bitmap |= uint64(qcow_oflag_sub_alloc_range(firstSc, lastSc+1))
@@ -363,6 +376,8 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 
 	var i uint32
 	skip_cow := keepOld
+
+	Assert(uint32(nbClusters) <= uint32(s.L2SliceSize)-l2Index)
 
 	/* Check the type of all affected subclusters */
 	for i = 0; i < uint32(nbClusters); i++ {
@@ -482,12 +497,7 @@ func calculate_l2_meta(bs *BlockDriverState, hostClusterOffset uint64,
 			NbBytes: cow_end_to - cow_end_from,
 		},
 	}
-
-	/*qemu_co_queue_init(&(*m)->dependent_requests);
-	  QLIST_INSERT_HEAD(&s->cluster_allocs, *m, next_in_flight);
-	*/
-	//insert the *m to the head of the cluster allocs list
-	//TODO1
+	//TODO2
 	(*m).NextInFlight = s.ClusterAllocs.PushFront(*m)
 	return nil
 }
@@ -527,6 +537,7 @@ func count_single_write_clusters(bs *BlockDriverState, nbClusters uint32,
 			expectedOffset += uint64(s.ClusterSize)
 		}
 	}
+	Assert(i <= nbClusters)
 	return i
 }
 
@@ -536,6 +547,8 @@ func do_alloc_cluster_offset(bs *BlockDriverState, guestOffset uint64, hostOffse
 	var err error
 
 	if has_data_file(bs) {
+		Assert(*hostOffset == INV_OFFSET ||
+			*hostOffset == start_of_cluster(s, guestOffset))
 		*hostOffset = start_of_cluster(s, guestOffset)
 		return nil
 	}
@@ -557,7 +570,7 @@ func do_alloc_cluster_offset(bs *BlockDriverState, guestOffset uint64, hostOffse
 func qcow2_alloc_host_offset(bs *BlockDriverState, offset uint64,
 	bytes *uint64, hostOffset *uint64, m **QCowL2Meta) error {
 
-	//s := bs.opaque
+	s := bs.opaque.(*BDRVQcow2State)
 	var start, remaining uint64
 	var clusterOffset uint64
 	var curBytes uint64
@@ -574,6 +587,7 @@ func qcow2_alloc_host_offset(bs *BlockDriverState, offset uint64,
 		if *hostOffset == INV_OFFSET && clusterOffset != INV_OFFSET {
 			*hostOffset = clusterOffset
 		}
+		Assert(remaining >= curBytes)
 		start += curBytes
 		remaining -= curBytes
 
@@ -585,23 +599,9 @@ func qcow2_alloc_host_offset(bs *BlockDriverState, offset uint64,
 		}
 		curBytes = remaining
 
-		//TODO2
-		/*err = Handle_Dependencies(bs, start, &curBytes, m)
-		err = nil
-		if err == syscall.EAGAIN {
-			goto again
-		} else if err != nil {
-			return err
-		} else if curBytes == 0 {
-			break
-		} else {
-
-		} */
+		//TODO2: so far we don't handle dependencies
 
 		var ret uint64
-		/*
-		 * 2. Count contiguous COPIED clusters.
-		 */
 		ret, err = handle_copied(bs, start, &clusterOffset, &curBytes, m)
 		if err != nil {
 			return err
@@ -611,21 +611,22 @@ func qcow2_alloc_host_offset(bs *BlockDriverState, offset uint64,
 			break
 		}
 
-		/*
-		 * 3. If the request still hasn't completed, allocate new clusters,
-		 *    considering any cluster_offset of steps 1c or 2.
-		 */
 		ret, err := handle_alloc(bs, start, &clusterOffset, &curBytes, m)
 		if err != nil {
 			return err
 		} else if ret > 0 {
 			continue
 		} else {
+			Assert(curBytes == 0)
 			break
 		}
 	} //end for
 
 	*bytes -= remaining
+	Assert(*bytes > 0)
+	Assert(*hostOffset != INV_OFFSET)
+	Assert(offset_into_cluster(s, *hostOffset) ==
+		offset_into_cluster(s, offset))
 	return err
 }
 
@@ -642,6 +643,8 @@ func handle_alloc(bs *BlockDriverState, guestOffset uint64,
 	var requestedBytes, availBytes uint64
 	var nbBytes uint64
 
+	Assert(*bytes > 0)
+
 	nbClusters = size_to_clusters(s, offset_into_cluster(s, guestOffset)+*bytes)
 	l2Index = uint32(offset_to_l2_slice_index(s, guestOffset))
 	nbClusters = min(nbClusters, uint64(s.L2SliceSize)-uint64(l2Index))
@@ -652,6 +655,7 @@ func handle_alloc(bs *BlockDriverState, guestOffset uint64,
 	}
 
 	nbClusters = uint64(count_single_write_clusters(bs, uint32(nbClusters), l2Slice, l2Index, true))
+	Assert(nbClusters > 0)
 
 	/* Allocate at a given offset in the image file */
 	if *hostOffset == INV_OFFSET {
@@ -670,6 +674,7 @@ func handle_alloc(bs *BlockDriverState, guestOffset uint64,
 		ret = 0
 		goto out
 	}
+	Assert(allocClusterOffset != INV_OFFSET)
 
 	requestedBytes = *bytes + offset_into_cluster(s, guestOffset)
 	availBytes = nbClusters << s.ClusterBits
@@ -678,6 +683,7 @@ func handle_alloc(bs *BlockDriverState, guestOffset uint64,
 	*hostOffset = allocClusterOffset + offset_into_cluster(s, guestOffset)
 	*bytes = min(*bytes, nbBytes-offset_into_cluster(s, guestOffset))
 
+	Assert(*bytes != 0)
 	if err = calculate_l2_meta(bs, allocClusterOffset, guestOffset, uint32(*bytes),
 		l2Slice, m, false); err != nil {
 		goto out
@@ -700,6 +706,8 @@ func handle_copied(bs *BlockDriverState, guestOffset uint64,
 	var keepClusters uint32
 	var ret uint64
 	var err error
+
+	Assert(*hostOffset == INV_OFFSET || offset_into_cluster(s, guestOffset) == offset_into_cluster(s, *hostOffset))
 
 	nbClusters = size_to_clusters(s, offset_into_cluster(s, guestOffset)+*bytes)
 	l2Index = uint32(offset_to_l2_slice_index(s, guestOffset))
@@ -727,9 +735,11 @@ func handle_copied(bs *BlockDriverState, guestOffset uint64,
 
 		/* We keep all QCOW_OFLAG_COPIED clusters */
 		keepClusters = count_single_write_clusters(bs, uint32(nbClusters), l2Slice, l2Index, false)
+		Assert(uint64(keepClusters) <= nbClusters)
 		if *bytes > uint64(keepClusters*s.ClusterSize)-offset_into_cluster(s, guestOffset) {
 			*bytes = uint64(keepClusters*s.ClusterSize) - offset_into_cluster(s, guestOffset)
 		}
+		Assert(*bytes != 0)
 		if err = calculate_l2_meta(bs, clusterOffset, guestOffset, uint32(*bytes), l2Slice, m, true); err != nil {
 			goto out
 		}
@@ -789,7 +799,6 @@ func qcow2_get_subcluster_type(bs *BlockDriverState, l2Entry uint64,
 	s := bs.opaque.(*BDRVQcow2State)
 	cType := qcow2_get_cluster_type(bs, l2Entry)
 
-	//fmt.Printf("[qcow2_get_subcluster_type] l2Bitmap=%d, scIndex=%d, cType=%d\n", l2Bitmap, scIndex, cType)
 	if has_subclusters(s) {
 		switch cType {
 		case QCOW2_CLUSTER_COMPRESSED:
@@ -931,6 +940,11 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 	var startBuffer, endBuffer []uint8
 	var qiov QEMUIOVector
 	var err error
+
+	Assert(start.NbBytes <= math.MaxUint-end.NbBytes)
+	Assert(start.NbBytes+end.NbBytes <= math.MaxUint-dataBytes)
+	Assert(start.Offset+start.NbBytes <= end.Offset)
+
 	if (start.NbBytes == 0 && end.NbBytes == 0) || m.SkipCow {
 		return nil
 	}
@@ -940,6 +954,8 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 		bufferSize = start.NbBytes + dataBytes + end.NbBytes
 	} else {
 		align := bdrv_opt_mem_align(bs)
+		Assert(align > 0 && align <= math.MaxUint)
+		Assert(align_up(start.NbBytes, align) <= math.MaxUint-end.NbBytes)
 		bufferSize = align_up(start.NbBytes, align) + end.NbBytes
 	}
 
@@ -948,52 +964,60 @@ func perform_cow(bs *BlockDriverState, m *QCowL2Meta) error {
 	endBuffer = startBuffer[bufferSize-end.NbBytes:]
 
 	if m.DataQiov != nil {
-		Qemu_Iovec_Init(&qiov, 2+Qemu_Iovec_Subvec_Niov(m.DataQiov, m.DataQiovOffset, dataBytes))
+		qemu_iovec_init(&qiov, 2+qemu_iovec_subvec_niov(m.DataQiov, m.DataQiovOffset, dataBytes))
 	} else {
-		Qemu_Iovec_Init(&qiov, 2)
+		qemu_iovec_init(&qiov, 2)
 	}
 
 	s.Qunlock()
 
 	if mergeReads {
-		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&startBuffer[0]), bufferSize)
+		if bufferSize > 0 {
+			qemu_iovec_add(&qiov, unsafe.Pointer(&startBuffer[0]), bufferSize)
+		}
 		err = do_perform_cow_read(bs, m.Offset, start.Offset, &qiov)
 	} else {
-		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
+		if start.NbBytes > 0 {
+			qemu_iovec_add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
+		}
 		if err = do_perform_cow_read(bs, m.Offset, start.Offset, &qiov); err != nil {
 			goto fail
 		}
 
+		qemu_iovec_reset(&qiov)
 		if end.NbBytes > 0 {
-			Qemu_Iovec_Reset(&qiov)
-			Qemu_Iovec_Add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
-			err = do_perform_cow_read(bs, m.Offset, end.Offset, &qiov)
+			qemu_iovec_add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
 		}
+		err = do_perform_cow_read(bs, m.Offset, end.Offset, &qiov)
 	}
 	if err != nil {
 		goto fail
 	}
 
 	if m.DataQiov != nil {
-		Qemu_Iovec_Reset(&qiov)
+		qemu_iovec_reset(&qiov)
 		if start.NbBytes > 0 {
-			Qemu_Iovec_Add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
+			qemu_iovec_add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
 		}
-		Qemu_Iovec_Concat(&qiov, m.DataQiov, m.DataQiovOffset, dataBytes)
+		qemu_iovec_concat(&qiov, m.DataQiov, m.DataQiovOffset, dataBytes)
 		if end.NbBytes > 0 {
-			Qemu_Iovec_Add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
+			qemu_iovec_add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
 		}
 		err = do_perform_cow_write(bs, m.AllocOffset, start.Offset, &qiov)
 	} else {
 		/* If there's no guest data then write both COW regions separately */
-		Qemu_Iovec_Reset(&qiov)
-		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
+		qemu_iovec_reset(&qiov)
+		if start.NbBytes > 0 {
+			qemu_iovec_add(&qiov, unsafe.Pointer(&startBuffer[0]), start.NbBytes)
+		}
 		if err = do_perform_cow_write(bs, m.AllocOffset, start.Offset, &qiov); err != nil {
 			goto fail
 		}
 
-		Qemu_Iovec_Reset(&qiov)
-		Qemu_Iovec_Add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
+		qemu_iovec_reset(&qiov)
+		if end.NbBytes > 0 {
+			qemu_iovec_add(&qiov, unsafe.Pointer(&endBuffer[0]), end.NbBytes)
+		}
 		err = do_perform_cow_write(bs, m.AllocOffset, end.Offset, &qiov)
 	}
 fail:
@@ -1002,7 +1026,7 @@ fail:
 		qcow2_cache_depends_on_flush(s.L2TableCache)
 	}
 
-	Qemu_Iovec_Destroy(&qiov)
+	qemu_iovec_destroy(&qiov)
 	return err
 }
 
@@ -1018,6 +1042,7 @@ func count_contiguous_subclusters(bs *BlockDriverState, nbClusters uint64, scInd
 	var ret uint64
 	var err error
 
+	Assert(*l2Index+nbClusters <= uint64(s.L2SliceSize))
 	for i = 0; i < nbClusters; i++ {
 		firstSc := scIndex
 		if i > 0 {
@@ -1067,6 +1092,19 @@ func qcow2_subcluster_zeroize(bs *BlockDriverState, offset uint64, bytes uint64,
 	var head, tail uint64
 	var cleared uint64
 	var err error
+
+	if data_file_is_raw(bs) {
+		Assert(has_data_file(bs))
+		err = bdrv_pwrite_zeroes(s.DataFile, offset, bytes, BdrvRequestFlags(flags))
+		if err != nil {
+			return err
+		}
+	}
+
+	Assert(offset_into_subcluster(s, offset) == 0)
+	Assert(offset_into_subcluster(s, endOffset) == 0 ||
+		endOffset >= bs.TotalSectors<<BDRV_SECTOR_BITS)
+
 	head = min(endOffset, round_up(offset, uint64(s.ClusterSize))) - offset
 	offset += head
 
@@ -1119,6 +1157,7 @@ func zero_in_l2_slice(bs *BlockDriverState, offset uint64, nbClusters uint64, fl
 
 	/* Limit nb_clusters to one L2 slice */
 	nbClusters = min(nbClusters, uint64(s.L2SliceSize)-uint64(l2Index))
+	Assert(nbClusters <= math.MaxUint)
 
 	for i = 0; i < uint32(nbClusters); i++ {
 		oldL2Entry := get_l2_entry(s, l2Slice, l2Index+i)
@@ -1174,6 +1213,10 @@ func zero_l2_subclusters(bs *BlockDriverState, offset uint64, nbSubclusters uint
 	var err error
 	sc := offset_to_sc_index(s, offset)
 
+	Assert(nbSubclusters > 0 && nbSubclusters < s.SubclustersPerCluster)
+	Assert(sc+nbSubclusters <= s.SubclustersPerCluster)
+	Assert(offset_into_subcluster(s, offset) == 0)
+
 	if l2Slice, l2Index, err = get_cluster_table(bs, offset); err != nil {
 		return err
 	}
@@ -1208,11 +1251,6 @@ func qcow2_cluster_is_allocated(ctype QCow2ClusterType) bool {
 		ctype == QCOW2_CLUSTER_ZERO_ALLOC)
 }
 
-/*
- static int discard_in_l2_slice(BlockDriverState *bs, uint64_t offset,
-	uint64_t nb_clusters,
-	enum qcow2_discard_type type, bool full_discard)
-*/
 func discard_in_l2_slice(bs *BlockDriverState, offset uint64, nbClusters uint64,
 	dType Qcow2DiscardType, fullDiscard bool) (uint64, error) {
 
@@ -1227,6 +1265,8 @@ func discard_in_l2_slice(bs *BlockDriverState, offset uint64, nbClusters uint64,
 	}
 	/* Limit nb_clusters to one L2 slice */
 	nbClusters = min(nbClusters, uint64(s.L2SliceSize)-uint64(l2Index))
+	Assert(nbClusters <= math.MaxUint)
+
 	for i = 0; i < uint32(nbClusters); i++ {
 		old_l2_entry := get_l2_entry(s, l2Slice, l2Index+i)
 		old_l2_bitmap := get_l2_bitmap(s, l2Slice, l2Index+i)
@@ -1276,6 +1316,10 @@ func qcow2_cluster_discard(bs *BlockDriverState, offset uint64, bytes uint64,
 	var nbClusters uint64
 	var cleared uint64
 	var err error
+	endOffset := offset + bytes
+
+	Assert(is_aligned(offset, uint64(s.ClusterSize)))
+	Assert(is_aligned(endOffset, uint64(s.ClusterSize)) || endOffset == bs.TotalSectors<<BDRV_SECTOR_BITS)
 
 	nbClusters = size_to_clusters(s, bytes)
 

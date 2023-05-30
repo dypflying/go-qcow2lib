@@ -145,7 +145,7 @@ func raw_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	}
 
 	if qiovOffset > 0 || bytes != qiov.size {
-		Qemu_Iovec_Init_Slice(&localQiov, qiov, qiovOffset, bytes)
+		qemu_iovec_init_slice(&localQiov, qiov, qiovOffset, bytes)
 		qiov = &localQiov
 	}
 
@@ -153,7 +153,7 @@ func raw_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	ctx := context.Background()
 	_, err = preadv(ctx, s.File, qiov.iov, qiov.niov, offset)
 	if qiov == &localQiov {
-		Qemu_Iovec_Destroy(&localQiov)
+		qemu_iovec_destroy(&localQiov)
 	}
 	return err
 }
@@ -174,7 +174,7 @@ func raw_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	}
 
 	if qiovOffset > 0 || bytes != qiov.size {
-		Qemu_Iovec_Init_Slice(&localQiov, qiov, qiovOffset, bytes)
+		qemu_iovec_init_slice(&localQiov, qiov, qiovOffset, bytes)
 		qiov = &localQiov
 	}
 
@@ -182,7 +182,7 @@ func raw_pwritev_part(bs *BlockDriverState, offset uint64, bytes uint64,
 	ctx := context.Background()
 	_, err = pwritev(ctx, s.File, qiov.iov, qiov.niov, offset)
 	if qiov == &localQiov {
-		Qemu_Iovec_Destroy(&localQiov)
+		qemu_iovec_destroy(&localQiov)
 	}
 	return err
 }
