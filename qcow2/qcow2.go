@@ -371,22 +371,25 @@ func qcow2_open(filename string, opts map[string]any, flags int) (*BlockDriverSt
 func initiate_qcow2_state(header *QCowHeader, enableSC bool) *BDRVQcow2State {
 
 	s := &BDRVQcow2State{
-		ClusterBits:         header.ClusterBits,
-		ClusterSize:         1 << header.ClusterBits,
-		L1Size:              header.L1Size,
-		RefcountBlockBits:   header.ClusterBits - (header.RefcountOrder - 3),
-		RefcountBlockSize:   1 << (header.ClusterBits - (header.RefcountOrder - 3)),
-		RefcountTableOffset: header.RefcountTableOffset,
-		RefcountTableSize:   header.RefcountTableClusters << (header.ClusterBits - 3),
-		ClusterOffsetMask:   1<<(70-header.ClusterBits) - 1, //only 54 bits
-		L1TableOffset:       header.L1TableOffset,
-		QcowVersion:         int(header.Version),
-		ClusterAllocs:       list.New(),
-		Discards:            list.New(),
-		get_refcount:        get_refcount,
-		set_refcount:        set_refcount,
-		AioTaskRoutine:      qcow2_aio_routine,
-		Lock:                &sync.Mutex{},
+		ClusterBits:          header.ClusterBits,
+		ClusterSize:          1 << header.ClusterBits,
+		L1Size:               header.L1Size,
+		RefcountBlockBits:    header.ClusterBits - (header.RefcountOrder - 3),
+		RefcountBlockSize:    1 << (header.ClusterBits - (header.RefcountOrder - 3)),
+		RefcountTableOffset:  header.RefcountTableOffset,
+		RefcountTableSize:    header.RefcountTableClusters << (header.ClusterBits - 3),
+		ClusterOffsetMask:    1<<(70-header.ClusterBits) - 1, //only 54 bits
+		L1TableOffset:        header.L1TableOffset,
+		QcowVersion:          int(header.Version),
+		ClusterAllocs:        list.New(),
+		Discards:             list.New(),
+		get_refcount:         get_refcount,
+		set_refcount:         set_refcount,
+		AioTaskRoutine:       qcow2_aio_routine,
+		Lock:                 &sync.Mutex{},
+		AutoclearFeatures:    header.AutoclearFeatures,
+		IncompatibleFeatures: header.IncompatibleFeatures,
+		CompatibleFeatures:   header.CompatibleFeatures,
 	}
 	//subcluster related
 	if enableSC {
@@ -467,7 +470,7 @@ func qcow2_preadv_part(bs *BlockDriverState, offset uint64, bytes uint64,
 			sctype == QCOW2_SUBCLUSTER_ZERO_ALLOC ||
 			(sctype == QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN && bs.backing == nil) ||
 			(sctype == QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC && bs.backing == nil) {
-			Qemu_Iovec_Memset(qiov, qiovOffset, 0, uint64(curBytes))
+			qemu_iovec_memset(qiov, qiovOffset, 0, uint64(curBytes))
 		} else {
 			if !isAio && curBytes != uint32(bytes) {
 				isAio = true
@@ -554,6 +557,8 @@ func qcow2_pwrite_zeroes(bs *BlockDriverState, offset uint64, bytes uint64, flag
 		var nr uint32
 		var sctype QCow2SubclusterType
 
+		Assert((head + bytes + tail) <= s.SubclusterSize)
+
 		/* check whether remainder of cluster already reads as zero */
 		if !(is_zero(bs, offset-head, head) &&
 			is_zero(bs, offset+bytes, tail)) {
@@ -617,20 +622,17 @@ func qcow2_preadv_task(bs *BlockDriverState, scType QCow2SubclusterType,
 	case QCOW2_SUBCLUSTER_ZERO_PLAIN, QCOW2_SUBCLUSTER_ZERO_ALLOC:
 		/* Both zero types are handled in qcow2_co_preadv_part */
 		Assert(false)
-
 	case QCOW2_SUBCLUSTER_UNALLOCATED_PLAIN, QCOW2_SUBCLUSTER_UNALLOCATED_ALLOC:
 		return bdrv_preadv_part(bs.backing, offset, bytes, qiov, qiovOffset, 0)
-
 	case QCOW2_SUBCLUSTER_COMPRESSED:
 		//do nothing
-
 	case QCOW2_SUBCLUSTER_NORMAL:
 		return bdrv_preadv_part(s.DataFile, hostOffset,
 			bytes, qiov, qiovOffset, 0)
-
 	default:
 		Assert(false)
 	}
+	Assert(false)
 	return nil
 }
 
@@ -717,17 +719,21 @@ func merge_cow(offset uint64, bytes uint64, qiov *QEMUIOVector, qiovOffset uint6
 
 		if l2meta_cow_start(m)+m.CowStart.NbBytes != offset {
 			/* In this case the request starts before this region */
+			Assert(offset < l2meta_cow_start(m))
+			Assert(m.CowStart.NbBytes == 0)
 			continue
 		}
 
 		/* The write request should end immediately before the second
 		 * COW region (see above for why it does not always happen) */
 		if m.Offset+m.CowEnd.Offset != offset+bytes {
+			Assert(offset+bytes > m.Offset+m.CowEnd.Offset)
+			Assert(m.CowEnd.NbBytes == 0)
 			continue
 		}
 		/* Make sure that adding both COW regions to the QEMUIOVector
 		 * does not exceed IOV_MAX */
-		if Qemu_Iovec_Subvec_Niov(qiov, qiovOffset, bytes) > IOV_MAX-2 {
+		if qemu_iovec_subvec_niov(qiov, qiovOffset, bytes) > IOV_MAX-2 {
 			continue
 		}
 
@@ -786,6 +792,8 @@ func qcow2_flush_to_os(bs *BlockDriverState) error {
 
 func qcow2_refcount_metadata_size(clusters uint64, clusterSize uint64, refcountOrder int,
 	generousIncrease bool, refblockCount *uint64) (uint64, error) {
+	//TODO2
+	//so far never reach here due to qcow2 file is limited to 4TiB
 	return 0, nil
 }
 
@@ -829,16 +837,14 @@ func qcow2_copy_range_from(bs *BlockDriverState, src *BdrvChild, offset uint64,
 	dst *BdrvChild, dstOffset uint64, bytes uint64,
 	readFlags BdrvRequestFlags, writeFlags BdrvRequestFlags) error {
 	//do nothing
-	fmt.Println("[qcow2_copy_range_from] no implementation")
-	return nil
+	return fmt.Errorf("[qcow2_copy_range_from] no implementation")
 }
 
 func qcow2_copy_range_to(bs *BlockDriverState, src *BdrvChild, offset uint64,
 	dst *BdrvChild, dstOffset uint64, bytes uint64,
 	readFlags BdrvRequestFlags, writeFlags BdrvRequestFlags) error {
 	//do nothing
-	fmt.Println("[qcow2_copy_range_to] no implementation")
-	return nil
+	return fmt.Errorf("[qcow2_copy_range_to] no implementation")
 }
 
 func qcow2_pdiscard(bs *BlockDriverState, offset uint64, bytes uint64) error {
@@ -896,10 +902,12 @@ func header_ext_read_external_data_file(bs *BlockDriverState, offset uint64) (st
 }
 
 func qcow2_pwritev_task_entry(task *Qcow2Task) error {
+	Assert(task.subclusterType == 0)
 	return qcow2_pwritev_task(task.bs, task.hostOffset, task.offset, task.bytes, task.qiov, task.qiovOffset, task.l2meta)
 }
 
 func qcow2_preadv_task_entry(task *Qcow2Task) error {
+	Assert(task.l2meta == nil)
 	return qcow2_preadv_task(task.bs, task.subclusterType, task.hostOffset, task.offset, task.bytes, task.qiov, task.qiovOffset)
 }
 

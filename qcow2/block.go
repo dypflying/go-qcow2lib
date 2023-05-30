@@ -95,7 +95,7 @@ func Blk_Pread(root *BdrvChild, offset uint64, buf []uint8, bytes uint64) (uint6
 		return 0, Err_NullObject
 	}
 
-	Qemu_Iovec_Init_Buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
+	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
 	if err = bdrv_preadv_part(root, offset, bytes, &qiov, 0, 0); err != nil {
 		return 0, err
 	}
@@ -130,7 +130,7 @@ func Blk_Pwrite(root *BdrvChild, offset uint64, buf []uint8,
 	if root == nil {
 		return 0, Err_NullObject
 	}
-	Qemu_Iovec_Init_Buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
+	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
 	if err = bdrv_pwritev_part(root, offset, bytes, &qiov, 0, flags); err != nil {
 		return 0, err
 	}
@@ -144,7 +144,7 @@ func Blk_Pwrite_Zeroes(root *BdrvChild, offset uint64,
 	if root == nil {
 		return 0, Err_NullObject
 	}
-	Qemu_Iovec_Init_Buf(&qiov, nil, bytes)
+	qemu_iovec_init_buf(&qiov, nil, bytes)
 	if err = bdrv_pwritev_part(root, offset, bytes, &qiov, 0, flags|BDRV_REQ_ZERO_WRITE); err != nil {
 		return 0, err
 	}

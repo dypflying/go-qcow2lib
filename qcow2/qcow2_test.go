@@ -101,13 +101,13 @@ func Test_qcow2_write_read(t *testing.T) {
 	buf := ([]byte)("this is a test")
 	bytes := uint64(len(buf))
 	var qiov QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
+	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
 	err = qcow2_pwritev_part(bs, 123, bytes, &qiov, 0, 0)
 	assert.Nil(t, err)
 
 	bufOut := make([]byte, bytes)
 	var qiovOut QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
+	qemu_iovec_init_buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
 	err = qcow2_preadv_part(bs, 123, bytes, &qiovOut, 0, 0)
 	assert.Nil(t, err)
 	assert.Equal(t, "this is a test", string(bufOut))
@@ -143,7 +143,7 @@ func Test_qcow2_backup_write_read(t *testing.T) {
 	buf := ([]byte)("this is a test")
 	bytes := uint64(len(buf))
 	var qiov QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
+	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
 	err = qcow2_pwritev_part(bs, 123, bytes, &qiov, 0, 0)
 	assert.Nil(t, err)
 	//close base
@@ -171,7 +171,7 @@ func Test_qcow2_backup_write_read(t *testing.T) {
 	//read from the overlay
 	bufOut := make([]byte, bytes)
 	var qiovOut QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
+	qemu_iovec_init_buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
 	err = qcow2_preadv_part(bs, 123, bytes, &qiovOut, 0, 0)
 	assert.Nil(t, err)
 	assert.Equal(t, "this is a test", string(bufOut))
@@ -213,7 +213,7 @@ func Test_qcow2_write_read_zeros(t *testing.T) {
 	//read from the overlay
 	bufOut := make([]byte, bytes)
 	var qiovOut QEMUIOVector
-	Qemu_Iovec_Init_Buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
+	qemu_iovec_init_buf(&qiovOut, unsafe.Pointer(&bufOut[0]), bytes)
 	err = qcow2_preadv_part(bs, 123, bytes, &qiovOut, 0, 0)
 	assert.Nil(t, err)
 	s := *(*string)(unsafe.Pointer(&bufOut[0]))

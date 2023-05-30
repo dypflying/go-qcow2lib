@@ -27,9 +27,9 @@ func Test_Pwritev_Preadv(t *testing.T) {
 
 	qiov := New_QEMUIOVector()
 
-	Qemu_Iovec_Init(qiov, 1)
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf1[0]), length1*8)
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf2[0]), length2*8)
+	qemu_iovec_init(qiov, 1)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf1[0]), length1*8)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf2[0]), length2*8)
 	assert.Equal(t, 2, qiov.niov)
 	file, err := os.OpenFile("/tmp/test.txt", os.O_CREATE|os.O_RDWR, os.FileMode(0755))
 	assert.Nil(t, err)

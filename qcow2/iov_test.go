@@ -19,7 +19,7 @@ func Test_Qemu_Iovec_Init_Buf(t *testing.T) {
 	buf[idx2] = 4321
 	var qiov QEMUIOVector
 
-	Qemu_Iovec_Init_Buf(&qiov, unsafe.Pointer(&buf[0]), 8*length)
+	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), 8*length)
 
 	assert.Equal(t, qiov.local_iov.iov_len, length*8)
 	assert.Equal(t, qiov.niov, 1)
@@ -48,7 +48,7 @@ func Test_Qemu_Iovec_Init_Add(t *testing.T) {
 
 	qiov := New_QEMUIOVector()
 
-	Qemu_Iovec_Init(qiov, 1)
+	qemu_iovec_init(qiov, 1)
 	//test empty qiov
 	assert.NotNil(t, qiov)
 	assert.NotNil(t, qiov.iov)
@@ -57,7 +57,7 @@ func Test_Qemu_Iovec_Init_Add(t *testing.T) {
 	assert.Equal(t, len(qiov.iov), 1)
 
 	//test add first buffer
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf[0]), length1)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf[0]), length1)
 	assert.Equal(t, qiov.niov, 1)
 	assert.Equal(t, qiov.nalloc, 1)
 	assert.Equal(t, qiov.size, length1)
@@ -74,7 +74,7 @@ func Test_Qemu_Iovec_Init_Add(t *testing.T) {
 	buf2 := make([]uint64, length2)
 	buf2[idx2_1] = 236897
 	buf2[idx2_2] = 5468495
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf2[0]), length2)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf2[0]), length2)
 	assert.Equal(t, qiov.niov, 2)
 	assert.Equal(t, qiov.nalloc, 3)
 	assert.Equal(t, qiov.size, length1+length2)
@@ -89,17 +89,17 @@ func Test_Qemu_Iovec_Init_Add(t *testing.T) {
 func Test_Qiov_Slice(t *testing.T) {
 
 	qiov := New_QEMUIOVector()
-	Qemu_Iovec_Init(qiov, 1)
+	qemu_iovec_init(qiov, 1)
 	buf1 := make([]uint64, 1024)
 	buf2 := make([]uint64, 2048)
 	buf3 := make([]uint64, 1024)
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf1[0]), 1024)
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf2[0]), 2048)
-	Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf3[0]), 1024)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf1[0]), 1024)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf2[0]), 2048)
+	qemu_iovec_add(qiov, unsafe.Pointer(&buf3[0]), 1024)
 	head := uint64(0)
 	tail := uint64(0)
 	var niov int
-	iov1 := Qiov_Slice(qiov, 2024, 1024, &head, &tail, &niov)
+	iov1 := qiov_slice(qiov, 2024, 1024, &head, &tail, &niov)
 	t.Logf("niov = %d, head = %d, tail = %d\n", niov, head, tail)
 	t.Logf("1: iov_len = %d\n", iov1[0].iov_len)
 	t.Logf("2: iov_len = %d\n", iov1[1].iov_len)
@@ -107,7 +107,7 @@ func Test_Qiov_Slice(t *testing.T) {
 	assert.Equal(t, uint64(24), tail)
 	assert.Equal(t, 1, niov)
 
-	Qiov_Slice(qiov, 2024, 2024, &head, &tail, &niov)
+	qiov_slice(qiov, 2024, 2024, &head, &tail, &niov)
 	t.Logf("niov = %d, head = %d, tail = %d\n", niov, head, tail)
 	assert.Equal(t, uint64(1000), head)
 	assert.Equal(t, uint64(48), tail)
@@ -117,18 +117,18 @@ func Test_Qiov_Slice(t *testing.T) {
 func Test_Qemu_Iovec_Init_Extended(t *testing.T) {
 
 	qiov := New_QEMUIOVector()
-	Qemu_Iovec_Init(qiov, 1)
+	qemu_iovec_init(qiov, 1)
 	head_buf := make([]byte, 512)
-	//Qemu_Iovec_Add(qiov, unsafe.Pointer(&buf1[0]), 1024)
+	//qemu_iovec_add(qiov, unsafe.Pointer(&buf1[0]), 1024)
 
 	midQiov := New_QEMUIOVector()
-	Qemu_Iovec_Init(midQiov, 1)
+	qemu_iovec_init(midQiov, 1)
 	mid_buf := make([]byte, 2048)
-	Qemu_Iovec_Add(midQiov, unsafe.Pointer(&mid_buf[0]), 2048)
+	qemu_iovec_add(midQiov, unsafe.Pointer(&mid_buf[0]), 2048)
 
 	tail_buf := make([]byte, 512)
 
-	Qemu_Iovec_Init_Extended(qiov, unsafe.Pointer(&head_buf[0]), 512, midQiov, 512, 1024, unsafe.Pointer(&tail_buf[0]), 512)
+	qemu_iovec_init_extended(qiov, unsafe.Pointer(&head_buf[0]), 512, midQiov, 512, 1024, unsafe.Pointer(&tail_buf[0]), 512)
 	assert.Equal(t, 3, qiov.niov)
 	assert.Equal(t, 3, qiov.nalloc)
 	assert.Equal(t, 3, len(qiov.iov))
@@ -145,25 +145,25 @@ func Test_Qemu_Iovec_Init_Extended(t *testing.T) {
 
 func Test_Qemu_Iovec_Concat(t *testing.T) {
 	dst_qiov := New_QEMUIOVector()
-	Qemu_Iovec_Init(dst_qiov, 1)
+	qemu_iovec_init(dst_qiov, 1)
 	buf1 := make([]uint64, 1024)
 	buf2 := make([]uint64, 2048)
 	buf3 := make([]uint64, 1024)
-	Qemu_Iovec_Add(dst_qiov, unsafe.Pointer(&buf1[0]), 1024)
-	Qemu_Iovec_Add(dst_qiov, unsafe.Pointer(&buf2[0]), 2048)
-	Qemu_Iovec_Add(dst_qiov, unsafe.Pointer(&buf3[0]), 1024)
+	qemu_iovec_add(dst_qiov, unsafe.Pointer(&buf1[0]), 1024)
+	qemu_iovec_add(dst_qiov, unsafe.Pointer(&buf2[0]), 2048)
+	qemu_iovec_add(dst_qiov, unsafe.Pointer(&buf3[0]), 1024)
 
 	src_qiov := New_QEMUIOVector()
-	Qemu_Iovec_Init(src_qiov, 1)
+	qemu_iovec_init(src_qiov, 1)
 	buf := make([]uint64, 1024)
-	Qemu_Iovec_Add(src_qiov, unsafe.Pointer(&buf[0]), 1024)
+	qemu_iovec_add(src_qiov, unsafe.Pointer(&buf[0]), 1024)
 
 	//do concat
-	Qemu_Iovec_Concat(dst_qiov, src_qiov, 512, 1024)
+	qemu_iovec_concat(dst_qiov, src_qiov, 512, 1024)
 	assert.Equal(t, 4, dst_qiov.niov)
 	assert.Equal(t, uint64(512), dst_qiov.iov[3].iov_len)
 
-	Qemu_Iovec_Concat(dst_qiov, src_qiov, 512, 24)
+	qemu_iovec_concat(dst_qiov, src_qiov, 512, 24)
 	assert.Equal(t, 5, dst_qiov.niov)
 	assert.Equal(t, uint64(24), dst_qiov.iov[4].iov_len)
 
