@@ -58,7 +58,11 @@ func Blk_Probe(filename string) (string, error) {
 	}
 }
 
-// this function return root BdrvChild
+/* this function return root BdrvChild
+* default cache model is 'writeback',
+* to use cache model 'none', set flags |= (BDRV_O_NOCACHE|BDRV_REQ_FUA)
+* to use cache model 'writethrough', set flags |= BDRV_REQ_FUA
+ */
 func Blk_Open(filename string, options map[string]any, flags int) (*BdrvChild, error) {
 
 	var child *BdrvChild
@@ -122,13 +126,24 @@ func Blk_Pread_Object(child *BdrvChild, offset uint64, object any, size uint64) 
 	return ret, nil
 }
 
+/*
+* default write cache model is 'writeback',
+* to use 'writethough' model, set 'flags |= BDRV_REQ_FUA'
+* Note: if the BDRV_REQ_FUA flag has been set in the openflags when open the block dev
+* the flag take effects for all writes as well
+ */
 func Blk_Pwrite(root *BdrvChild, offset uint64, buf []uint8,
 	bytes uint64, flags BdrvRequestFlags) (uint64, error) {
 
+	Assert(root != nil)
+	bs := root.bs
 	var qiov QEMUIOVector
 	var err error
 	if root == nil {
 		return 0, Err_NullObject
+	}
+	if (bs.OpenFlags & BDRV_REQ_FUA) > 0 {
+		flags |= BDRV_REQ_FUA
 	}
 	qemu_iovec_init_buf(&qiov, unsafe.Pointer(&buf[0]), bytes)
 	if err = bdrv_pwritev_part(root, offset, bytes, &qiov, 0, flags); err != nil {
@@ -139,10 +154,16 @@ func Blk_Pwrite(root *BdrvChild, offset uint64, buf []uint8,
 
 func Blk_Pwrite_Zeroes(root *BdrvChild, offset uint64,
 	bytes uint64, flags BdrvRequestFlags) (uint64, error) {
+
+	Assert(root != nil)
+	bs := root.bs
 	var qiov QEMUIOVector
 	var err error
 	if root == nil {
 		return 0, Err_NullObject
+	}
+	if (bs.OpenFlags & BDRV_REQ_FUA) > 0 {
+		flags |= BDRV_REQ_FUA
 	}
 	qemu_iovec_init_buf(&qiov, nil, bytes)
 	if err = bdrv_pwritev_part(root, offset, bytes, &qiov, 0, flags|BDRV_REQ_ZERO_WRITE); err != nil {
@@ -191,6 +212,11 @@ func Blk_Getlength(child *BdrvChild) (uint64, error) {
 
 func Blk_Discard(child *BdrvChild, offset uint64, bytes uint64) error {
 	return bdrv_pdiscard(child, offset, bytes)
+}
+
+func Blk_Flush(child *BdrvChild) error {
+	Assert(child != nil)
+	return bdrv_flush(child.bs)
 }
 
 func Blk_Info(child *BdrvChild, detail bool, pretty bool) string {

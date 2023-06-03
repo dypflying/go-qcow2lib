@@ -47,11 +47,14 @@ func newRawDriver() *BlockDriver {
 func openflag2PosixFlag(flag int) int {
 
 	var posixFlag int
-	if flag&BDRV_O_CREATE > 0 {
+	if (flag & BDRV_O_CREATE) > 0 {
 		posixFlag |= os.O_CREATE
 	}
-	if flag&BDRV_O_RDWR > 0 {
+	if (flag & BDRV_O_RDWR) > 0 {
 		posixFlag |= os.O_RDWR
+	}
+	if (flag & BDRV_O_NOCACHE) > 0 {
+		posixFlag |= os.O_SYNC
 	}
 	return posixFlag
 }
@@ -94,10 +97,9 @@ func raw_open(filename string, options map[string]any, flags int) (*BlockDriverS
 		opaque: &BDRVRawState{
 			File: file,
 		},
-		current: nil,
-		backing: nil,
-		options: make(map[string]any),
-		//SupportedWriteFlags: BDRV_REQ_WRITE_UNCHANGED | BDRV_REQ_FUA,
+		current:             nil,
+		backing:             nil,
+		options:             make(map[string]any),
 		SupportedWriteFlags: 0,
 		RequestAlignment:    DEFAULT_ALIGNMENT,
 		MaxTransfer:         DEFAULT_MAX_TRANSFER,

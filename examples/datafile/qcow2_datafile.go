@@ -1,6 +1,12 @@
 package main
 
-/*
+import (
+	"fmt"
+	"os"
+
+	"github.com/dypflying/go-qcow2lib/qcow2"
+)
+
 func main() {
 	var err error
 	var filename = "/tmp/test_datafile.qcow2"
@@ -44,8 +50,7 @@ func main() {
 	fmt.Printf("read buf = %s\n", string(bufOut))
 
 	qcow2.Blk_Close(root)
-	//os.Remove(filename)
-	//os.Remove(datafile)
+	os.Remove(filename)
+	os.Remove(datafile)
 
 }
-*/
