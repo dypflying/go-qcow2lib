@@ -40,7 +40,16 @@ func simple_open() *qcow2.BdrvChild {
 func simple_write(root *qcow2.BdrvChild) {
 	var err error
 	data := "this is a test"
-	if _, err = qcow2.Blk_Pwrite(root, SIMPLE_OFFSET, ([]byte)(data), uint64(len(data)), 0); err != nil {
+	if _, err = qcow2.Blk_Pwrite(root, SIMPLE_OFFSET, ([]byte)(data), uint64(len(data)), qcow2.BDRV_REQ_FUA); err != nil {
+		fmt.Printf("write failed, err: %v\n", err)
+	}
+}
+
+//write data to the qcow2 file example
+func simple_write2(root *qcow2.BdrvChild) {
+	var err error
+	data := "this is a test"
+	if _, err = qcow2.Blk_Pwrite(root, SIMPLE_OFFSET+655360, ([]byte)(data), uint64(len(data)), 0); err != nil {
 		fmt.Printf("write failed, err: %v\n", err)
 	}
 }
@@ -60,12 +69,13 @@ func simple_close(root *qcow2.BdrvChild) {
 	qcow2.Blk_Close(root)
 }
 
-/*
 func main() {
 	simple_create()
 	root := simple_open()
+	fmt.Println("----------------")
 	simple_write(root)
+	//simple_write2(root)
+	fmt.Println("----------------")
 	simple_read(root)
 	simple_close(root)
 }
-*/

@@ -26,3 +26,11 @@ clean:
 
 test:
 	./test.sh
+
+.PHONY: examples
+examples:
+	mkdir -p $(OUTPUT_DIR)/examples
+	go build -o $(OUTPUT_DIR)/examples/simple examples/simple/qcow2_simple.go
+	go build -o $(OUTPUT_DIR)/examples/backing examples/backing/qcow2_backing.go
+	go build -o $(OUTPUT_DIR)/examples/datafile examples/datafile/qcow2_datafile.go
+	go build -o $(OUTPUT_DIR)/examples/zerowrite examples/zerowrite/qcow2_zerowrite.go
